@@ -1,0 +1,39 @@
+extends ../layouts/main.pug
+
+block title
+	title Theryntile — Login
+
+block styles
+	link(rel="stylesheet" href="/styles/Login.css")
+
+block content
+	main#game-entry.login(data-state="restoring")
+		section(data-view="login" hidden)
+			form.login__form(data-role="login-form")
+				img(src="/images/brand/logo/theryntile_HD.webp" alt="Theryntile")
+				h2 Acesse sua conta
+				input(type="text" name="username" autocomplete="username" placeholder="Usuário" maxlength="64" required)
+				input(type="password" name="password" autocomplete="current-password" placeholder="Senha" maxlength="128" required)
+				p.login__error(data-role="login-error" hidden) Usuário ou senha inválidos.
+				button(type="submit") Entrar
+
+		section(data-view="authenticated" hidden)
+			.authenticated-layout
+				.entry-panel
+					img.entry-panel__logo(src="/images/brand/logo/theryntile_HD.webp" alt="Theryntile")
+					h2 Bem-vindo, #[span(data-value="player-name")]
+					p Escolha um servidor para continuar.
+					button.entry-panel__play(type="button" data-action="play" disabled) Jogar
+					a.entry-panel__logout(href="#logout" data-action="logout") Sair
+
+				.server-panel
+					h2 Servidores
+					div.server-list(data-role="server-list")
+
+		section.loading-view(data-view="loading" hidden)
+			p(data-role="loading-message") Carregando...
+
+		section.game-view(data-view="game" hidden)
+			canvas(data-role="game-canvas" width="640" height="360")
+
+	script(type="module" src="/client/login/Login.js")
