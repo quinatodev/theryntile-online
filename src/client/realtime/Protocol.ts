@@ -1,0 +1,182 @@
+/**
+ * Lang: pt-BR
+ * Define o contrato client-side das mensagens WebSocket e valida dados recebidos em runtime.
+ * Tipos TypeScript não tornam payloads de rede confiáveis, portanto toda mensagem do server passa pelo parser.
+ *
+ * Lang: en-US
+ * Defines the client-side WebSocket message contract and validates data received at runtime.
+ * TypeScript types do not make network payloads trustworthy, so every server message goes through the parser.
+ */
+export interface ChannelState {
+	id: number;
+	name: string;
+	population: number;
+	capacity: number;
+}
+
+export interface ChannelsStateMessage {
+	type: "CHANNELS_STATE";
+	channels: ChannelState[];
+}
+
+export interface ChannelPopulationMessage {
+	type: "CHANNEL_POPULATION";
+	channelId: number;
+	population: number;
+}
+
+export interface EnterChannelMessage {
+	type: "ENTER_CHANNEL";
+	channelId: number;
+}
+
+export interface PlayerState {
+	id: number;
+	name: string;
+	row: number;
+	column: number;
+}
+
+export interface EnterChannelSuccessMessage {
+	type: "ENTER_CHANNEL_SUCCESS";
+	channelId: number;
+	player: PlayerState;
+	players: PlayerState[];
+}
+
+export interface PlayerJoinedMessage { type: "PLAYER_JOINED"; player: PlayerState; }
+
+export interface PlayerLeftMessage { type: "PLAYER_LEFT"; playerId: number; }
+
+export interface SessionReplacedMessage { type: "SESSION_REPLACED"; }
+
+export interface SessionRevokedMessage { type: "SESSION_REVOKED"; }
+
+export type EnterChannelRejectionReason = "CHANNEL_NOT_FOUND" | "CHANNEL_FULL" | "ALREADY_IN_CHANNEL" | "INVALID_REQUEST" | "NO_SPAWN_AVAILABLE";
+
+export interface EnterChannelRejectedMessage {
+	type: "ENTER_CHANNEL_REJECTED";
+	reason: EnterChannelRejectionReason;
+}
+
+export type RealtimeMessage = ChannelsStateMessage
+	| ChannelPopulationMessage
+	| EnterChannelSuccessMessage
+	| EnterChannelRejectedMessage
+	| PlayerJoinedMessage
+	| PlayerLeftMessage
+	| SessionReplacedMessage
+	| SessionRevokedMessage;
+
+const rejectionReasons: EnterChannelRejectionReason[] = [
+	"CHANNEL_NOT_FOUND",
+	"CHANNEL_FULL",
+	"ALREADY_IN_CHANNEL",
+	"INVALID_REQUEST",
+	"NO_SPAWN_AVAILABLE",
+];
+
+const isPositiveInteger = (value: unknown): value is number => Number.isSafeInteger(value) && Number(value) > 0;
+
+const isNonNegativeInteger = (value: unknown): value is number => Number.isSafeInteger(value) && Number(value) >= 0;
+
+/**
+ * Lang: pt-BR
+ * Valida o catálogo de um canal, incluindo inteiros e a invariante population <= capacity.
+ *
+ * Lang: en-US
+ * Validates a channel catalog entry, including integers and the population <= capacity invariant.
+ */
+const isChannelState = (value: unknown): value is ChannelState => {
+	if (!value || typeof value !== "object") {
+		return false;
+	}
+
+	const channel = value as Record<string, unknown>;
+
+	return isPositiveInteger(channel.id)
+		&& typeof channel.name === "string"
+		&& isNonNegativeInteger(channel.population)
+		&& isNonNegativeInteger(channel.capacity)
+		&& channel.population <= channel.capacity;
+};
+
+/**
+ * Lang: pt-BR
+ * Valida a representação de jogador recebida do server antes que ela alcance o runtime visual.
+ *
+ * Lang: en-US
+ * Validates the player representation received from the server before it reaches the visual runtime.
+ */
+const isPlayerState = (value: unknown): value is PlayerState => {
+	if (!value || typeof value !== "object") {
+		return false;
+	}
+
+	const player = value as Record<string, unknown>;
+
+	return isPositiveInteger(player.id)
+		&& typeof player.name === "string"
+		&& Number.isSafeInteger(player.row) && Number(player.row) >= 0 && Number(player.row) < 5
+		&& Number.isSafeInteger(player.column) && Number(player.column) >= 0 && Number(player.column) < 5;
+};
+
+/**
+ * Lang: pt-BR
+ * Converte uma mensagem server -> client em uma união tipada ou retorna null quando o payload viola o protocolo.
+ *
+ * Lang: en-US
+ * Converts a server -> client message into a typed union or returns null when the payload violates the protocol.
+ */
+export function parseRealtimeMessage(data: string): RealtimeMessage | null {
+	try {
+		const message = JSON.parse(data) as Record<string, unknown>;
+
+		if (message.type === "CHANNELS_STATE" && Array.isArray(message.channels) && message.channels.every(isChannelState)) {
+			return { type: "CHANNELS_STATE", channels: message.channels };
+		}
+
+		if (message.type === "CHANNEL_POPULATION" && isPositiveInteger(message.channelId) && isNonNegativeInteger(message.population)) {
+			return {
+				type: "CHANNEL_POPULATION",
+				channelId: message.channelId,
+				population: message.population,
+			};
+		}
+
+		if (message.type === "ENTER_CHANNEL_SUCCESS" && isPositiveInteger(message.channelId) && isPlayerState(message.player) && Array.isArray(message.players) && message.players.every(isPlayerState)) {
+			return { type: "ENTER_CHANNEL_SUCCESS", channelId: message.channelId, player: message.player, players: message.players };
+		}
+
+		if (message.type === "PLAYER_JOINED" && isPlayerState(message.player)) {
+			return { type: "PLAYER_JOINED", player: message.player };
+		}
+
+		if (message.type === "PLAYER_LEFT" && Number.isSafeInteger(message.playerId) && Number(message.playerId) > 0) {
+			return { type: "PLAYER_LEFT", playerId: Number(message.playerId) };
+		}
+
+		if (message.type === "SESSION_REPLACED") {
+			return { type: "SESSION_REPLACED" };
+		}
+
+		if (message.type === "SESSION_REVOKED") {
+			return { type: "SESSION_REVOKED" };
+		}
+
+		if (
+			message.type === "ENTER_CHANNEL_REJECTED"
+			&& typeof message.reason === "string"
+			&& rejectionReasons.includes(message.reason as EnterChannelRejectionReason)
+		) {
+			return {
+				type: "ENTER_CHANNEL_REJECTED",
+				reason: message.reason as EnterChannelRejectionReason,
+			};
+		}
+	} catch {
+		return null;
+	}
+
+	return null;
+}
