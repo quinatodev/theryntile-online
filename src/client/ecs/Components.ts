@@ -43,6 +43,14 @@ export interface AnimationComponent {
 }
 
 export interface MovementComponent {
+	/**
+	 * Lang: pt-BR
+	 * Marca o último step autoritativo para liberar o lock e retornar a Idle somente após sua interpolação.
+	 *
+	 * Lang: en-US
+	 * Marks the final authoritative step so the lock is released and Idle resumes only after its interpolation.
+	 */
+	finalStep: boolean;
 	fromColumn: number;
 	fromRow: number;
 	progress: number;
@@ -53,10 +61,6 @@ export interface MovementComponent {
 	targetRow: number;
 	targetX: number;
 	targetY: number;
-}
-
-export interface MoveTargetComponent extends GridPosition {
-	awaitingStep: boolean;
 }
 
 export interface PointerPosition {

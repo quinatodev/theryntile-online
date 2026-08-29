@@ -29,6 +29,7 @@ test("MovementSystem interpolates for 500 ms then returns to idle without changi
 	world.visualPositions.set(entity, { x: 0, y: 0 });
 	world.animations.set(entity, { direction: "right_down", frame: 0, state: "walk" });
 	world.movements.set(entity, {
+		finalStep: true,
 		fromColumn: 0, fromRow: 0, progress: 0, startX: 0, startY: 0,
 		targetColumn: 1, targetRow: 0, targetX: 16, targetY: 8,
 	});
@@ -48,11 +49,30 @@ test("MovementSystem ignores Entities without the Components it requires", () =>
 	const world = new World();
 	const entity = world.createEntity();
 	world.movements.set(entity, {
+		finalStep: true,
 		fromColumn: 0, fromRow: 0, progress: 0, startX: 0, startY: 0,
 		targetColumn: 1, targetRow: 0, targetX: 16, targetY: 8,
 	});
 	new MovementSystem().update(world, 500);
 	assert.equal(world.movements.get(entity)?.progress, 0);
+});
+
+test("MovementSystem keeps Walk and route lock between authoritative steps", () => {
+	const world = new World();
+	const entity = world.createEntity();
+	world.visualPositions.set(entity, { x: 0, y: 0 });
+	world.animations.set(entity, { direction: "right_down", frame: 0, state: "walk" });
+	world.movingPlayers.add(entity);
+	world.movements.set(entity, {
+		finalStep: false, fromColumn: 0, fromRow: 0, progress: 0, startX: 0, startY: 0,
+		targetColumn: 1, targetRow: 0, targetX: 16, targetY: 8,
+	});
+	const system = new MovementSystem();
+	system.update(world, 0);
+	system.update(world, 500);
+	assert.equal(world.animations.get(entity)?.state, "walk");
+	assert.equal(world.movingPlayers.has(entity), true);
+	assert.equal(world.movements.has(entity), false);
 });
 
 test("AnimationSystem derives looping idle and walk frames from timestamps", () => {

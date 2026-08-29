@@ -9,13 +9,16 @@ import { type Entity, type PlayerSnapshot, type PointerPosition } from "../ecs/C
 import { AnimationSystem } from "../ecs/systems/AnimationSystem.js";
 import { CameraSystem } from "../ecs/systems/CameraSystem.js";
 import { HoverSystem } from "../ecs/systems/HoverSystem.js";
-import { getNextRequestedStep, MovementSystem } from "../ecs/systems/MovementSystem.js";
-import { RenderSystem } from "../ecs/systems/RenderSystem.js";
+import { MovementSystem } from "../ecs/systems/MovementSystem.js";
+import { PLAYER_LAYER, PLAYER_ORDER, RenderSystem } from "../ecs/systems/RenderSystem.js";
 import { SelectSystem } from "../ecs/systems/SelectSystem.js";
+import { WalkHintSystem } from "../ecs/systems/WalkHintSystem.js";
 import { World } from "../ecs/World.js";
 import { changeCameraZoom, type Camera } from "../engine/Camera.js";
 import { resizeCanvasToViewport } from "../engine/Canvas.js";
 import { gridToIsometric } from "../engine/Isometric.js";
+import { GAME_MAP, MAP_LAYERS } from "./Map.js";
+import { findPath, MAX_MOVEMENT_STEPS } from "./Navigation.js";
 
 const TILE_WIDTH = 32;
 const TILE_FOOTPRINT_HEIGHT = 16;
@@ -23,8 +26,6 @@ const PLAYER_FRAME_WIDTH = 32;
 const PLAYER_FRAME_HEIGHT = 48;
 const PLAYER_SPRITE_OFFSET_X = 0;
 const PLAYER_SPRITE_OFFSET_Y = 0;
-const MAP_ROWS = 5;
-const MAP_COLUMNS = 5;
 
 export interface PlayerMoved {
 	column: number;
@@ -32,6 +33,7 @@ export interface PlayerMoved {
 	fromRow: number;
 	playerId: number;
 	row: number;
+	finalStep: boolean;
 }
 
 export interface Game {
@@ -51,12 +53,15 @@ const movementDirection = ({ column, fromColumn, fromRow, row }: PlayerMoved) =>
 };
 
 const addTileEntities = (world: World): void => {
-	for (let row = 0; row < MAP_ROWS; row += 1) {
-		for (let column = 0; column < MAP_COLUMNS; column += 1) {
-			const entity = world.createEntity();
-			world.gridPositions.set(entity, { column, row });
-			world.renderables.set(entity, { layer: 0, order: 0 });
-			world.tiles.set(entity, { textureId: 1 });
+	for (const layer of MAP_LAYERS) {
+		for (const [row, entries] of GAME_MAP[layer].entries()) {
+			for (const [column, textureId] of entries.entries()) {
+				if (textureId === 0) continue;
+				const entity = world.createEntity();
+				world.gridPositions.set(entity, { column, row });
+				world.renderables.set(entity, { layer, order: 0 });
+				world.tiles.set(entity, { textureId });
+			}
 		}
 	}
 };
@@ -67,7 +72,7 @@ const addPlayerEntity = (world: World, player: PlayerSnapshot, local: boolean): 
 	world.animations.set(entity, { direction: "left_down", frame: 0, state: "idle" });
 	world.gridPositions.set(entity, { column: player.column, row: player.row });
 	world.players.set(entity, { id: player.id, name: player.name });
-	world.renderables.set(entity, { layer: 2, order: player.id });
+	world.renderables.set(entity, { layer: PLAYER_LAYER, order: PLAYER_ORDER + player.id });
 	world.sprites.set(entity, {
 		feetOffsetY: TILE_FOOTPRINT_HEIGHT,
 		frameHeight: PLAYER_FRAME_HEIGHT,
@@ -81,6 +86,13 @@ const addPlayerEntity = (world: World, player: PlayerSnapshot, local: boolean): 
 	return entity;
 };
 
+/**
+ * Lang: pt-BR
+ * Inicializa o runtime multilayer, envia apenas intenção de destino e mantém input bloqueado durante a rota autoritativa.
+ *
+ * Lang: en-US
+ * Initializes the multilayer runtime, sends destination intent only, and keeps input locked during the authoritative route.
+ */
 export async function startGame(
 	canvas: HTMLCanvasElement,
 	localPlayer: PlayerSnapshot,
@@ -97,6 +109,7 @@ export async function startGame(
 	const cameraSystem = new CameraSystem();
 	const hoverSystem = new HoverSystem();
 	const selectSystem = new SelectSystem();
+	const walkHintSystem = new WalkHintSystem();
 	const renderSystem = await RenderSystem.create(surface);
 	const playerEntities = new Map<number, Entity>();
 	addTileEntities(world);
@@ -112,32 +125,16 @@ export async function startGame(
 	let started = false;
 	const pointer: PointerPosition = { canvasX: 0, canvasY: 0, inside: false };
 
-	const render = () => { if (started && !disposed) renderSystem.render(world, camera); };
-	const requestNextMove = () => {
-		const moveTarget = world.moveTargets.get(localPlayerEntity);
-		const gridPosition = world.gridPositions.get(localPlayerEntity);
-
-		if (!moveTarget || !gridPosition) return;
-		if (gridPosition.row === moveTarget.row && gridPosition.column === moveTarget.column) {
-			world.moveTargets.delete(localPlayerEntity);
-
-			return;
-		}
-		const nextStep = getNextRequestedStep(gridPosition, moveTarget, world.movements.has(localPlayerEntity));
-
-		if (!nextStep) return;
-
-		if (requestMove(nextStep.row, nextStep.column)) moveTarget.awaitingStep = true;
-	};
+	const render = () => { if (started && !disposed) renderSystem.render(world, camera, performance.now()); };
 	const frame = (timestamp: number) => {
 		animationFrame = null;
 		if (!started || disposed) return;
 		hoverSystem.update(world, camera, canvas.width, canvas.height, pointer);
 		movementSystem.update(world, timestamp);
-		requestNextMove();
 		animationSystem.update(world, timestamp);
 		cameraSystem.update(world, camera);
-		renderSystem.render(world, camera);
+		walkHintSystem.update(world, localPlayerEntity, timestamp);
+		renderSystem.render(world, camera, timestamp);
 		animationFrame = window.requestAnimationFrame(frame);
 	};
 	const ensureAnimationFrame = () => {
@@ -154,14 +151,17 @@ export async function startGame(
 	const leaveCanvas = () => { pointer.inside = false; world.hoveredTiles.clear(); render(); };
 	const selectClickedTile = (event: MouseEvent) => {
 		updatePointer(event);
+		if (world.movingPlayers.has(localPlayerEntity)) return;
 		const hoveredEntity = hoverSystem.update(world, camera, canvas.width, canvas.height, pointer);
+		const target = hoveredEntity === undefined ? undefined : world.gridPositions.get(hoveredEntity);
+		const current = world.gridPositions.get(localPlayerEntity);
+		if (!target || !current) return;
+		const path = findPath(current, target);
+		if (!path || path.length === 0 || path.length > MAX_MOVEMENT_STEPS || !requestMove(target.row, target.column)) return;
 		const selectedEntity = selectSystem.select(world, hoveredEntity);
 		if (selectedEntity === undefined) return;
-		const target = world.gridPositions.get(selectedEntity);
-		if (!target) return;
-		const awaitingStep = world.moveTargets.get(localPlayerEntity)?.awaitingStep ?? false;
-		world.moveTargets.set(localPlayerEntity, { ...target, awaitingStep });
-		requestNextMove();
+		world.movingPlayers.add(localPlayerEntity);
+		walkHintSystem.reset(world);
 		render();
 	};
 
@@ -177,6 +177,7 @@ export async function startGame(
 			if (animationFrame !== null) window.cancelAnimationFrame(animationFrame);
 			animationFrame = null;
 			playerEntities.clear();
+			walkHintSystem.reset(world);
 			world.clear();
 		},
 		playerJoined(player) {
@@ -202,13 +203,10 @@ export async function startGame(
 			const visualPosition = world.visualPositions.get(entity);
 			const animation = world.animations.get(entity);
 			if (!gridPosition || !visualPosition || !animation) return;
-			if (entity === localPlayerEntity) {
-				const moveTarget = world.moveTargets.get(entity);
-				if (moveTarget) moveTarget.awaitingStep = false;
-			}
 			const target = gridToIsometric(message.column, message.row, TILE_WIDTH, TILE_FOOTPRINT_HEIGHT);
+			world.movingPlayers.add(entity);
 			world.movements.set(entity, {
-				fromColumn: message.fromColumn, fromRow: message.fromRow, progress: 0,
+				finalStep: message.finalStep, fromColumn: message.fromColumn, fromRow: message.fromRow, progress: 0,
 				startX: visualPosition.x, startY: visualPosition.y,
 				targetColumn: message.column, targetRow: message.row, targetX: target.x, targetY: target.y,
 			});
@@ -223,6 +221,7 @@ export async function startGame(
 		start() {
 			if (disposed || started) return;
 			started = true;
+			walkHintSystem.reset(world);
 			window.addEventListener("resize", resizeAndRender);
 			canvas.addEventListener("wheel", zoomAndRender, { passive: false });
 			canvas.addEventListener("pointermove", updatePointer);

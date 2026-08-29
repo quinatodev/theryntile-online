@@ -8,7 +8,10 @@ import {
 	getHighlightDiamond,
 	getHighlightRenderOrder,
 	getMovementSortingGrid,
+	getPlayerRenderOrder,
+	getTileFeedbackState,
 	getTileHighlightState,
+	getTileVisualPosition,
 	type RenderOrder,
 } from "./RenderSystem.js";
 
@@ -59,6 +62,7 @@ test("moving players switch sorting grid once at the shared tile boundary in eve
 	];
 	for (const transition of transitions) {
 		const movement: MovementComponent = {
+			finalStep: true,
 			fromColumn: transition.fromColumn, fromRow: transition.fromRow, progress: 0.499,
 			startX: 0, startY: 0, targetColumn: transition.column, targetRow: transition.row, targetX: 0, targetY: 0,
 		};
@@ -114,4 +118,32 @@ test("sprite offsets do not participate in Player sorting", () => {
 	const renderOrder = { column: 2, depth: 3, layer: 2, order: 7, row: 1 };
 	applySpriteOffset({ x: 100, y: 50 }, { offsetX: 999, offsetY: -999 });
 	assert.deepEqual(renderOrder, { column: 2, depth: 3, layer: 2, order: 7, row: 1 });
+});
+
+test("Player priority wins its own layer but never crosses an upper layer", () => {
+	const tile = { column: 5, depth: 10, layer: 1, name: "tile", order: 0, row: 5 };
+	const effect = { column: 5, depth: 10, layer: 1, name: "effect", order: 50, row: 5 };
+	const player = { ...getPlayerRenderOrder({ column: 5, row: 5 }, 7), name: "player" };
+	const upperTile = { column: 5, depth: 10, layer: 2, name: "upper tile", order: 0, row: 5 };
+	assert.deepEqual(orderedNames([upperTile, player, effect, tile]), ["tile", "effect", "player", "upper tile"]);
+});
+
+test("multiple Players use their IDs as deterministic tie-break after normal layer drawables", () => {
+	const tile = { column: 1, depth: 2, layer: 1, name: "tile", order: 999, row: 1 };
+	const first = { ...getPlayerRenderOrder({ column: 1, row: 1 }, 2), name: "player 2" };
+	const second = { ...getPlayerRenderOrder({ column: 1, row: 1 }, 9), name: "player 9" };
+	assert.deepEqual(orderedNames([second, tile, first]), ["tile", "player 2", "player 9"]);
+});
+
+test("Tile layer height moves each visual origin upward by 8px", () => {
+	assert.deepEqual(getTileVisualPosition({ column: 2, row: 2 }, 0), { x: 0, y: 32 });
+	assert.deepEqual(getTileVisualPosition({ column: 2, row: 2 }, 1), { x: 0, y: 24 });
+	assert.deepEqual(getTileVisualPosition({ column: 2, row: 2 }, 2), { x: 0, y: 16 });
+});
+
+test("feedback precedence remains Selected, Hover, Hint, Tile", () => {
+	assert.equal(getTileFeedbackState(true, true, true), "selected");
+	assert.equal(getTileFeedbackState(false, true, true), "hovered");
+	assert.equal(getTileFeedbackState(false, false, true), "hinted");
+	assert.equal(getTileFeedbackState(false, false, false), undefined);
 });

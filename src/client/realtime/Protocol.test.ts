@@ -10,7 +10,7 @@ test("move accepts integer grid coordinates", () => {
 test("move rejects invalid row and column values", () => {
 	assert.equal(isMoveMessage({ type: "MOVE", row: 1.5, column: 2 }), false);
 	assert.equal(isMoveMessage({ type: "MOVE", row: 2, column: -1 }), false);
-	assert.equal(isMoveMessage({ type: "MOVE", row: 2, column: 5 }), false);
+	assert.equal(isMoveMessage({ type: "MOVE", row: 2, column: 11 }), false);
 });
 
 test("channel state accepts valid integer values", () => {
@@ -34,6 +34,7 @@ test("player moved accepts an authoritative adjacent transition", () => {
 		fromColumn: 2,
 		row: 2,
 		column: 3,
+		finalStep: true,
 	})), {
 		type: "PLAYER_MOVED",
 		playerId: 1,
@@ -41,14 +42,16 @@ test("player moved accepts an authoritative adjacent transition", () => {
 		fromColumn: 2,
 		row: 2,
 		column: 3,
+		finalStep: true,
 	});
 });
 
 for (const message of [
-	{ type: "PLAYER_MOVED", playerId: 0, fromRow: 2, fromColumn: 2, row: 2, column: 3 },
-	{ type: "PLAYER_MOVED", playerId: 1, fromRow: 2, fromColumn: 2, row: 3, column: 3 },
-	{ type: "PLAYER_MOVED", playerId: 1, fromRow: 2, fromColumn: 2, row: 5, column: 2 },
-	{ type: "PLAYER_MOVED", playerId: 1, fromRow: 2, fromColumn: 2, row: 2.5, column: 2 },
+	{ type: "PLAYER_MOVED", playerId: 0, fromRow: 2, fromColumn: 2, row: 2, column: 3, finalStep: true },
+	{ type: "PLAYER_MOVED", playerId: 1, fromRow: 2, fromColumn: 2, row: 3, column: 3, finalStep: true },
+	{ type: "PLAYER_MOVED", playerId: 1, fromRow: 2, fromColumn: 2, row: 11, column: 2, finalStep: true },
+	{ type: "PLAYER_MOVED", playerId: 1, fromRow: 2, fromColumn: 2, row: 2.5, column: 2, finalStep: true },
+	{ type: "PLAYER_MOVED", playerId: 1, fromRow: 2, fromColumn: 2, row: 2, column: 3, finalStep: "yes" },
 ]) {
 	test(`player moved rejects malformed state: ${JSON.stringify(message)}`, () => {
 		assert.equal(parseRealtimeMessage(JSON.stringify(message)), null);

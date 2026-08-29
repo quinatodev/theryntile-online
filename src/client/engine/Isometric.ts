@@ -15,7 +15,13 @@ export interface GridPosition {
 	column: number;
 }
 
-/** Vertical distance from the texture origin to the Tile's visual ground footprint. */
+/**
+ * Lang: pt-BR
+ * Distância vertical entre a origem da textura e o footprint do chão visual do Tile.
+ *
+ * Lang: en-US
+ * Vertical distance from the texture origin to the Tile's visual ground footprint.
+ */
 export const TILE_VISUAL_GROUND_OFFSET_Y = 8;
 
 /**

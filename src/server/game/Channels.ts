@@ -8,8 +8,9 @@
  * sid is operational socket metadata; session persistence remains in Session.ts.
  */
 import { database } from "../database/Database.js";
-import { canMoveTo } from "./Movement.js";
+import { getAuthorizedPath } from "./Navigation.js";
 import { getRandomSpawn } from "./Spawn.js";
+import { RouteState } from "./RouteState.js";
 
 interface ChannelRow {
 	id: number;
@@ -54,6 +55,8 @@ const channels: RuntimeChannel[] = [];
 const lobbySockets = new Set<ChannelSocket>();
 const accountSockets = new Map<number, Set<ChannelSocket>>();
 const OPEN_SOCKET_STATE = 1;
+const MOVEMENT_STEP_MS = 500;
+const activeRoutes = new RouteState<ChannelSocket>();
 
 const serializePlayer = ({ id, name, row, column }: ChannelPlayer) => ({ id, name, row, column });
 
@@ -161,25 +164,38 @@ const enterChannel = (socket: ChannelSocket, identity: AuthenticatedPlayer, chan
 const movePlayer = (socket: ChannelSocket, row: number, column: number) => {
 	const channel = channels.find(({ members }) => members.has(socket));
 	const player = channel?.players.find((candidate) => candidate.socket === socket);
-
-	if (!channel || !player || !canMoveTo(player, { row, column })) {
+	if (!channel || !player || activeRoutes.has(socket)) {
 		return;
 	}
+	const path = getAuthorizedPath(player, { row, column });
+	if (!path) return;
+	const steps = [...path];
+	if (!activeRoutes.begin(socket)) return;
 
-	const fromRow = player.row;
-	const fromColumn = player.column;
+	// Lang: pt-BR
+	// O server possui a rota e emite um único step autoritativo a cada 500 ms; o lock só termina após o último step visual.
+	// Lang: en-US
+	// The server owns the route and emits one authoritative step every 500 ms; the lock ends only after the final visual step.
+	const emitNextStep = () => {
+		if (!activeRoutes.has(socket) || !channel.members.has(socket)) return;
+		const step = steps.shift();
+		if (!step) return;
+		const fromRow = player.row;
+		const fromColumn = player.column;
+		player.row = step.row;
+		player.column = step.column;
+		sendToChannel(channel, {
+			type: "PLAYER_MOVED", playerId: player.id, fromRow, fromColumn,
+			row: step.row, column: step.column, finalStep: steps.length === 0,
+		});
+		const timer = setTimeout(() => {
+			if (steps.length === 0) activeRoutes.cancel(socket);
+			else emitNextStep();
+		}, MOVEMENT_STEP_MS);
+		activeRoutes.setTimer(socket, timer);
+	};
 
-	player.row = row;
-	player.column = column;
-
-	sendToChannel(channel, {
-		type: "PLAYER_MOVED",
-		playerId: player.id,
-		fromRow,
-		fromColumn,
-		row,
-		column,
-	});
+	emitNextStep();
 };
 
 /**
@@ -228,14 +244,15 @@ const handleMessage = (socket: ChannelSocket, identity: AuthenticatedPlayer, dat
 
 /**
  * Lang: pt-BR
- * Centraliza o cleanup final: remove índices e presença, então publica PLAYER_LEFT e população.
+ * Centraliza o cleanup final: cancela rota/timer, remove índices e presença, então publica PLAYER_LEFT e população.
  * Replacement/revocation deixam este handler como único owner do cleanup completo.
  *
  * Lang: en-US
- * Centralizes final cleanup: removes indexes and presence, then publishes PLAYER_LEFT and population.
+ * Centralizes final cleanup: cancels route/timer, removes indexes and presence, then publishes PLAYER_LEFT and population.
  * Replacement/revocation leave this handler as the sole owner of complete cleanup.
  */
 const handleClose = (socket: ChannelSocket, accountId: number) => {
+	activeRoutes.cancel(socket);
 	lobbySockets.delete(socket);
 	const sockets = accountSockets.get(accountId);
 	sockets?.delete(socket);
@@ -260,12 +277,13 @@ const handleClose = (socket: ChannelSocket, accountId: number) => {
 
 /**
  * Lang: pt-BR
- * Carrega o catálogo persistido e inicializa presença vazia para cada channel no runtime.
+ * Cancela rotas antigas, carrega o catálogo persistido e inicializa presença vazia para cada channel no runtime.
  *
  * Lang: en-US
- * Loads the persisted catalog and initializes empty presence for each runtime channel.
+ * Cancels old routes, loads the persisted catalog, and initializes empty presence for each runtime channel.
  */
 export async function initializeChannels(): Promise<void> {
+	activeRoutes.clear();
 	const result = await database.query<ChannelRow>(
 		"SELECT id, name, capacity FROM game_servers ORDER BY id",
 	);
@@ -322,12 +340,13 @@ export function addLobbySocket(socket: ChannelSocket, identity: AuthenticatedPla
 
 /**
  * Lang: pt-BR
- * Retira elegibilidade, notifica o motivo e inicia o close; handleClose preserva o cleanup final único.
+ * Retira elegibilidade, cancela a rota, notifica o motivo e inicia o close; handleClose preserva o cleanup final único.
  *
  * Lang: en-US
- * Removes eligibility, reports the reason, and starts close; handleClose preserves single final cleanup.
+ * Removes eligibility, cancels the route, reports the reason, and starts close; handleClose preserves single final cleanup.
  */
 const closeSocketWithMessage = (socket: ChannelSocket, type: "SESSION_REPLACED" | "SESSION_REVOKED") => {
+	activeRoutes.cancel(socket);
 	const message = JSON.stringify({ type });
 	const closeCode = type === "SESSION_REPLACED" ? 4001 : 4002;
 

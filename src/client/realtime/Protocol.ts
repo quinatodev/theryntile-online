@@ -61,6 +61,14 @@ export interface PlayerMovedMessage {
 	fromColumn: number;
 	row: number;
 	column: number;
+	/**
+	 * Lang: pt-BR
+	 * Informa se este é o último step da rota autoritativa para o client liberar lock somente após interpolá-lo.
+	 *
+	 * Lang: en-US
+	 * Reports whether this is the final authoritative-route step so the client releases its lock only after interpolation.
+	 */
+	finalStep: boolean;
 }
 
 export interface SessionReplacedMessage { type: "SESSION_REPLACED"; }
@@ -96,7 +104,7 @@ const isPositiveInteger = (value: unknown): value is number => Number.isSafeInte
 
 const isNonNegativeInteger = (value: unknown): value is number => Number.isSafeInteger(value) && Number(value) >= 0;
 
-const isGridCoordinate = (value: unknown): value is number => Number.isSafeInteger(value) && Number(value) >= 0 && Number(value) < 5;
+const isGridCoordinate = (value: unknown): value is number => Number.isSafeInteger(value) && Number(value) >= 0 && Number(value) < 11;
 
 /**
  * Lang: pt-BR
@@ -205,6 +213,7 @@ export function parseRealtimeMessage(data: string): RealtimeMessage | null {
 			&& isGridCoordinate(message.fromColumn)
 			&& isGridCoordinate(message.row)
 			&& isGridCoordinate(message.column)
+			&& typeof message.finalStep === "boolean"
 			&& Math.abs(message.row - message.fromRow) + Math.abs(message.column - message.fromColumn) === 1
 		) {
 			return {
@@ -214,6 +223,7 @@ export function parseRealtimeMessage(data: string): RealtimeMessage | null {
 				fromColumn: message.fromColumn,
 				row: message.row,
 				column: message.column,
+				finalStep: message.finalStep,
 			};
 		}
 
