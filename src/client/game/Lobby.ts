@@ -9,7 +9,7 @@
  */
 import { type Camera } from "../engine/Camera.js";
 import { type CanvasSurface } from "../engine/Canvas.js";
-import { type Player } from "./Player.js";
+import { type PlayerDirection, type VisualPlayer } from "./Player.js";
 import { gridToIsometric } from "../engine/Isometric.js";
 
 const TILE_WIDTH = 32;
@@ -17,12 +17,45 @@ const TILE_FOOTPRINT_HEIGHT = 16;
 const PLAYER_FRAME_WIDTH = 32;
 const PLAYER_FRAME_HEIGHT = 48;
 const PLAYER_FOOT_OFFSET_Y = TILE_FOOTPRINT_HEIGHT;
-const PLAYER_TEXTURE_PATHS = [
-	"/assets/textures/characters/hana/idle_left_down.png",
-	"/assets/textures/characters/hana/idle_left_top.png",
-	"/assets/textures/characters/hana/idle_right_down.png",
-	"/assets/textures/characters/hana/idle_right_top.png",
-] as const;
+const PLAYER_FRAME_COUNT = 8;
+const PLAYER_DIRECTIONS: PlayerDirection[] = ["left_down", "left_top", "right_down", "right_top"];
+
+export interface RenderOrder {
+	column: number;
+	depth: number;
+	layer: number;
+	order: number;
+	row: number;
+}
+
+interface PlayerDrawable extends RenderOrder {
+	kind: "player";
+	player: VisualPlayer;
+}
+
+interface TileDrawable extends RenderOrder {
+	kind: "tile";
+	x: number;
+	y: number;
+}
+
+type Drawable = PlayerDrawable | TileDrawable;
+
+export const compareRenderOrder = (a: RenderOrder, b: RenderOrder): number => a.depth - b.depth
+	|| a.row - b.row
+	|| a.column - b.column
+	|| a.layer - b.layer
+	|| a.order - b.order;
+
+export const getPlayerSortingGrid = (player: Pick<VisualPlayer, "column" | "movement" | "row">) => {
+	const movement = player.movement;
+
+	if (movement && movement.progress < 0.5) {
+		return { column: movement.fromColumn, row: movement.fromRow };
+	}
+
+	return { column: player.column, row: player.row };
+};
 
 const lobbyMap: number[][] = Array.from({ length: 5 }, () => Array<number>(5).fill(1));
 
@@ -34,24 +67,25 @@ const loadImage = (path: string): Promise<HTMLImageElement> => new Promise((reso
 	image.src = path;
 });
 
-export interface LobbyRenderer { render(players: readonly Player[], camera: Camera): void; }
+export interface LobbyRenderer { render(players: readonly VisualPlayer[], camera: Camera): void; }
 
 /**
  * Lang: pt-BR
  * Carrega os assets necessários e devolve um renderer ligado ao CanvasSurface fornecido.
- * A ordem por diagonais e por row/column mantém o painter ordering de tiles e jogadores.
+ * Grid, layer local e order mantêm o painter ordering de tiles e jogadores durante a interpolação.
  *
  * Lang: en-US
  * Loads the required assets and returns a renderer bound to the provided CanvasSurface.
- * Diagonal and row/column ordering preserves painter ordering for tiles and players.
+ * Grid, local layer, and order preserve tile/player painter ordering during interpolation.
  */
 export async function createLobbyRenderer({ element, context }: CanvasSurface): Promise<LobbyRenderer> {
-	const [tileTexture, initialPlayerTexture] = await Promise.all([
-		loadImage("/assets/textures/tiles/grass/tile1.png"),
-		...PLAYER_TEXTURE_PATHS.map(loadImage),
-	]);
+	const tileTexture = await loadImage("/assets/textures/tiles/grass/tile1.png");
+	const playerTextures = new Map<string, HTMLImageElement>();
 
-	if (!tileTexture || !initialPlayerTexture) throw new Error("The lobby assets could not be loaded.");
+	await Promise.all(PLAYER_DIRECTIONS.flatMap((direction) => ["idle", "walk"].map(async (animation) => {
+		const key = `${animation}_${direction}`;
+		playerTextures.set(key, await loadImage(`/assets/textures/characters/hana/${key}.png`));
+	})));
 
 	return {
 		render(players, camera) {
@@ -70,24 +104,36 @@ export async function createLobbyRenderer({ element, context }: CanvasSurface): 
 			context.clearRect(0, 0, element.width, element.height);
 			context.imageSmoothingEnabled = false;
 
-			for (let depth = 0; depth < rows + columns - 1; depth += 1) {
-				const firstRow = Math.max(0, depth - columns + 1);
-				const lastRow = Math.min(rows - 1, depth);
+			const drawables: Drawable[] = [];
 
-				for (let row = firstRow; row <= lastRow; row += 1) {
-					const column = depth - row;
+			for (let row = 0; row < rows; row += 1) {
+				for (let column = 0; column < columns; column += 1) {
 					const world = gridToIsometric(column, row, TILE_WIDTH, TILE_FOOTPRINT_HEIGHT);
-					const screen = toScreen(world.x, world.y);
+					drawables.push({ column, depth: row + column, kind: "tile", layer: 0, order: 0, row, x: world.x, y: world.y });
+				}
+			}
 
+			for (const player of players) {
+				const grid = getPlayerSortingGrid(player);
+				drawables.push({ ...grid, depth: grid.row + grid.column, kind: "player", layer: 1, order: player.id, player });
+			}
+
+			drawables.sort(compareRenderOrder);
+
+			for (const drawable of drawables) {
+				if (drawable.kind === "tile") {
+					const screen = toScreen(drawable.x, drawable.y);
 					context.drawImage(tileTexture, Math.round(screen.x - TILE_WIDTH * camera.zoom / 2), Math.round(screen.y), TILE_WIDTH * camera.zoom, tileTexture.naturalHeight * camera.zoom);
+					continue;
 				}
 
-				const depthPlayers = players.filter((player) => player.row + player.column === depth).sort((a, b) => a.row - b.row || a.column - b.column);
-				for (const player of depthPlayers) {
-					const world = gridToIsometric(player.column, player.row, TILE_WIDTH, TILE_FOOTPRINT_HEIGHT);
-					const feet = toScreen(world.x, world.y + PLAYER_FOOT_OFFSET_Y);
+				const player = drawable.player;
+				const feet = toScreen(player.visualX, player.visualY + PLAYER_FOOT_OFFSET_Y);
+				const texture = playerTextures.get(`${player.animation}_${player.direction}`);
 
-					context.drawImage(initialPlayerTexture, 0, 0, PLAYER_FRAME_WIDTH, PLAYER_FRAME_HEIGHT, Math.round(feet.x - PLAYER_FRAME_WIDTH * camera.zoom / 2), Math.round(feet.y - PLAYER_FRAME_HEIGHT * camera.zoom), PLAYER_FRAME_WIDTH * camera.zoom, PLAYER_FRAME_HEIGHT * camera.zoom);
+				if (texture) {
+					const frame = player.frame % PLAYER_FRAME_COUNT;
+					context.drawImage(texture, frame * PLAYER_FRAME_WIDTH, 0, PLAYER_FRAME_WIDTH, PLAYER_FRAME_HEIGHT, Math.round(feet.x - PLAYER_FRAME_WIDTH * camera.zoom / 2), Math.round(feet.y - PLAYER_FRAME_HEIGHT * camera.zoom), PLAYER_FRAME_WIDTH * camera.zoom, PLAYER_FRAME_HEIGHT * camera.zoom);
 				}
 			}
 		},

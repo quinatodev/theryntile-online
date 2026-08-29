@@ -7,7 +7,7 @@
  * Client composition/lifecycle root: coordinates DOM, authentication, lobby, Loading, and Game activation.
  * Realtime owns transport, Game owns the visual runtime, and the server retains gameplay authority.
  */
-import { type ChannelState, type EnterChannelRejectionReason, type PlayerState } from "../realtime/Protocol.js";
+import { type ChannelState, type EnterChannelRejectionReason, type PlayerMovedMessage, type PlayerState } from "../realtime/Protocol.js";
 import { startGame, type Game } from "../game/Game.js";
 import { createRealtime } from "../realtime/Realtime.js";
 
@@ -48,7 +48,11 @@ let selectedChannelId: number | null = null;
 let realtimeConnected = false;
 let enterChannelPending = false;
 let game: Game | null = null;
-let loadingPlayerEvents: Array<{ type: "joined"; player: PlayerState } | { type: "left"; playerId: number }> = [];
+let loadingPlayerEvents: Array<
+	{ type: "joined"; player: PlayerState }
+	| { type: "left"; playerId: number }
+	| { type: "moved"; message: PlayerMovedMessage }
+> = [];
 
 // Lang: pt-BR
 // Invalida prepares assíncronos para impedir que um resultado de Loading obsoleto se torne ativo.
@@ -298,7 +302,7 @@ const realtime = createRealtime({
 		root.dataset.state = "loading";
 
 		try {
-			const startedGame = await startGame(gameCanvas, message.player, message.players);
+			const startedGame = await startGame(gameCanvas, message.player, message.players, (row, column) => realtime.move(row, column));
 
 			// Lang: pt-BR
 			// startGame prepara sem efeitos; somente a geração de Loading ainda atual pode ativá-lo.
@@ -316,7 +320,8 @@ const realtime = createRealtime({
 			// Presence changes received while assets load are reconciled before the first frame.
 			for (const event of loadingPlayerEvents) {
 				if (event.type === "joined") startedGame.playerJoined(event.player);
-				else startedGame.playerLeft(event.playerId);
+				else if (event.type === "left") startedGame.playerLeft(event.playerId);
+				else startedGame.playerMoved(event.message);
 			}
 
 			loadingPlayerEvents = [];
@@ -351,6 +356,10 @@ const realtime = createRealtime({
 	onPlayerLeft(playerId) {
 		if (game) game.playerLeft(playerId);
 		else if (root.dataset.state === "loading") loadingPlayerEvents.push({ type: "left", playerId });
+	},
+	onPlayerMoved(message) {
+		if (game) game.playerMoved(message);
+		else if (root.dataset.state === "loading") loadingPlayerEvents.push({ type: "moved", message });
 	},
 
 	// Lang: pt-BR

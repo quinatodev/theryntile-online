@@ -8,6 +8,7 @@
  * sid is operational socket metadata; session persistence remains in Session.ts.
  */
 import { database } from "../database/Database.js";
+import { canMoveTo } from "./Movement.js";
 import { getRandomSpawn } from "./Spawn.js";
 
 interface ChannelRow {
@@ -155,6 +156,39 @@ const enterChannel = (socket: ChannelSocket, identity: AuthenticatedPlayer, chan
 
 /**
  * Lang: pt-BR
+ * Localiza a presença pelo socket, valida o destino e publica a mutation lógica autoritativa no channel.
+ * O client fornece somente a intenção; playerId, origem e resultado são derivados do runtime do server.
+ *
+ * Lang: en-US
+ * Locates presence by socket, validates the destination, and publishes the authoritative logical mutation.
+ * The client supplies only intent; playerId, origin, and result are derived from server runtime.
+ */
+const movePlayer = (socket: ChannelSocket, row: number, column: number) => {
+	const channel = channels.find(({ members }) => members.has(socket));
+	const player = channel?.players.find((candidate) => candidate.socket === socket);
+
+	if (!channel || !player || !canMoveTo(player, { row, column }, channel.players.filter((candidate) => candidate !== player))) {
+		return;
+	}
+
+	const fromRow = player.row;
+	const fromColumn = player.column;
+
+	player.row = row;
+	player.column = column;
+
+	sendToChannel(channel, {
+		type: "PLAYER_MOVED",
+		playerId: player.id,
+		fromRow,
+		fromColumn,
+		row,
+		column,
+	});
+};
+
+/**
+ * Lang: pt-BR
  * Valida estritamente a única intenção client -> server atual antes de encaminhá-la à admissão.
  *
  * Lang: en-US
@@ -165,20 +199,33 @@ const handleMessage = (socket: ChannelSocket, identity: AuthenticatedPlayer, dat
 		const message = JSON.parse(String(data)) as Record<string, unknown>;
 		const keys = Object.keys(message);
 
-		if (
-			message.type !== "ENTER_CHANNEL"
-			|| !Number.isSafeInteger(message.channelId)
-			|| Number(message.channelId) <= 0
-			|| keys.length !== 2
-			|| !keys.includes("type")
-			|| !keys.includes("channelId")
-		) {
-			rejectEntry(socket, "INVALID_REQUEST");
+		if (message.type === "ENTER_CHANNEL") {
+			if (
+				!Number.isSafeInteger(message.channelId)
+				|| Number(message.channelId) <= 0
+				|| keys.length !== 2
+				|| !keys.includes("channelId")
+			) {
+				rejectEntry(socket, "INVALID_REQUEST");
+
+				return;
+			}
+
+			enterChannel(socket, identity, Number(message.channelId));
 
 			return;
 		}
 
-		enterChannel(socket, identity, Number(message.channelId));
+		if (
+			message.type === "MOVE"
+			&& Number.isSafeInteger(message.row)
+			&& Number.isSafeInteger(message.column)
+			&& keys.length === 3
+			&& keys.includes("row")
+			&& keys.includes("column")
+		) {
+			movePlayer(socket, Number(message.row), Number(message.column));
+		}
 	} catch {
 		rejectEntry(socket, "INVALID_REQUEST");
 	}

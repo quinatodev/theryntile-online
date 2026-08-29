@@ -8,11 +8,14 @@
  * It transports authoritative state but does not decide any gameplay rule.
  */
 import {
+	isMoveMessage,
 	parseRealtimeMessage,
 	type ChannelState,
 	type EnterChannelMessage,
 	type EnterChannelRejectionReason,
 	type EnterChannelSuccessMessage,
+	type MoveMessage,
+	type PlayerMovedMessage,
 	type PlayerState,
 } from "./Protocol.js";
 
@@ -26,6 +29,7 @@ interface RealtimeCallbacks {
 	onEnterChannelSuccess(message: EnterChannelSuccessMessage): void;
 	onPlayerJoined(player: PlayerState): void;
 	onPlayerLeft(playerId: number): void;
+	onPlayerMoved(message: PlayerMovedMessage): void;
 	onSessionReplaced(): void;
 	onSessionRevoked(): void;
 	onUnauthenticated(): void;
@@ -35,6 +39,7 @@ export interface Realtime {
 	connect(): void;
 	close(): void;
 	enterChannel(channelId: number): boolean;
+	move(row: number, column: number): boolean;
 }
 
 /**
@@ -103,6 +108,8 @@ export function createRealtime(callbacks: RealtimeCallbacks): Realtime {
 				callbacks.onPlayerJoined(message.player);
 			} else if (message?.type === "PLAYER_LEFT") {
 				callbacks.onPlayerLeft(message.playerId);
+			} else if (message?.type === "PLAYER_MOVED") {
+				callbacks.onPlayerMoved(message);
 			} else if (message?.type === "SESSION_REPLACED") {
 				callbacks.onSessionReplaced();
 			} else if (message?.type === "SESSION_REVOKED") {
@@ -252,5 +259,27 @@ export function createRealtime(callbacks: RealtimeCallbacks): Realtime {
 		return true;
 	};
 
-	return { connect, close, enterChannel };
+	/**
+	 * Lang: pt-BR
+	 * Envia uma intenção de destino lógico somente após admissão; posição final continua autoritativa no server.
+	 *
+	 * Lang: en-US
+	 * Sends a logical-destination intent only after admission; final position remains authoritative on the server.
+	 */
+	const move = (row: number, column: number) => {
+		if (!enteredChannel || socket?.readyState !== WebSocket.OPEN) {
+			return false;
+		}
+
+		const message: MoveMessage = { type: "MOVE", row, column };
+		if (!isMoveMessage(message)) {
+			return false;
+		}
+
+		socket.send(JSON.stringify(message));
+
+		return true;
+	};
+
+	return { connect, close, enterChannel, move };
 }

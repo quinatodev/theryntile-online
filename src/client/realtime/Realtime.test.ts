@@ -47,6 +47,7 @@ const callbacks = {
 	onEnterChannelSuccess() {},
 	onPlayerJoined() {},
 	onPlayerLeft() {},
+	onPlayerMoved() {},
 	onSessionReplaced() {},
 	onSessionRevoked() {},
 	onUnauthenticated() {},

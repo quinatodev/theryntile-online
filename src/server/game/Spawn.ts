@@ -12,8 +12,8 @@ export interface SpawnPosition {
 	column: number;
 }
 
-const LOBBY_ROWS = 5;
-const LOBBY_COLUMNS = 5;
+export const LOBBY_ROWS = 5;
+export const LOBBY_COLUMNS = 5;
 
 /**
  * Lang: pt-BR

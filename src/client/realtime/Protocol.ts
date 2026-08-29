@@ -30,6 +30,12 @@ export interface EnterChannelMessage {
 	channelId: number;
 }
 
+export interface MoveMessage {
+	type: "MOVE";
+	row: number;
+	column: number;
+}
+
 export interface PlayerState {
 	id: number;
 	name: string;
@@ -48,6 +54,15 @@ export interface PlayerJoinedMessage { type: "PLAYER_JOINED"; player: PlayerStat
 
 export interface PlayerLeftMessage { type: "PLAYER_LEFT"; playerId: number; }
 
+export interface PlayerMovedMessage {
+	type: "PLAYER_MOVED";
+	playerId: number;
+	fromRow: number;
+	fromColumn: number;
+	row: number;
+	column: number;
+}
+
 export interface SessionReplacedMessage { type: "SESSION_REPLACED"; }
 
 export interface SessionRevokedMessage { type: "SESSION_REVOKED"; }
@@ -65,6 +80,7 @@ export type RealtimeMessage = ChannelsStateMessage
 	| EnterChannelRejectedMessage
 	| PlayerJoinedMessage
 	| PlayerLeftMessage
+	| PlayerMovedMessage
 	| SessionReplacedMessage
 	| SessionRevokedMessage;
 
@@ -79,6 +95,32 @@ const rejectionReasons: EnterChannelRejectionReason[] = [
 const isPositiveInteger = (value: unknown): value is number => Number.isSafeInteger(value) && Number(value) > 0;
 
 const isNonNegativeInteger = (value: unknown): value is number => Number.isSafeInteger(value) && Number(value) >= 0;
+
+const isGridCoordinate = (value: unknown): value is number => Number.isSafeInteger(value) && Number(value) >= 0 && Number(value) < 5;
+
+/**
+ * Lang: pt-BR
+ * Valida a forma client -> server de MOVE antes do transporte; o server repete validação e autoridade.
+ *
+ * Lang: en-US
+ * Validates the client -> server MOVE shape before transport; the server repeats validation and authority.
+ */
+export function isMoveMessage(value: unknown): value is MoveMessage {
+	if (!value || typeof value !== "object") {
+		return false;
+	}
+
+	const message = value as Record<string, unknown>;
+	const keys = Object.keys(message);
+
+	return message.type === "MOVE"
+		&& isGridCoordinate(message.row)
+		&& isGridCoordinate(message.column)
+		&& keys.length === 3
+		&& keys.includes("type")
+		&& keys.includes("row")
+		&& keys.includes("column");
+}
 
 /**
  * Lang: pt-BR
@@ -117,8 +159,8 @@ const isPlayerState = (value: unknown): value is PlayerState => {
 
 	return isPositiveInteger(player.id)
 		&& typeof player.name === "string"
-		&& Number.isSafeInteger(player.row) && Number(player.row) >= 0 && Number(player.row) < 5
-		&& Number.isSafeInteger(player.column) && Number(player.column) >= 0 && Number(player.column) < 5;
+		&& isGridCoordinate(player.row)
+		&& isGridCoordinate(player.column);
 };
 
 /**
@@ -154,6 +196,25 @@ export function parseRealtimeMessage(data: string): RealtimeMessage | null {
 
 		if (message.type === "PLAYER_LEFT" && Number.isSafeInteger(message.playerId) && Number(message.playerId) > 0) {
 			return { type: "PLAYER_LEFT", playerId: Number(message.playerId) };
+		}
+
+		if (
+			message.type === "PLAYER_MOVED"
+			&& isPositiveInteger(message.playerId)
+			&& isGridCoordinate(message.fromRow)
+			&& isGridCoordinate(message.fromColumn)
+			&& isGridCoordinate(message.row)
+			&& isGridCoordinate(message.column)
+			&& Math.abs(message.row - message.fromRow) + Math.abs(message.column - message.fromColumn) === 1
+		) {
+			return {
+				type: "PLAYER_MOVED",
+				playerId: message.playerId,
+				fromRow: message.fromRow,
+				fromColumn: message.fromColumn,
+				row: message.row,
+				column: message.column,
+			};
 		}
 
 		if (message.type === "SESSION_REPLACED") {

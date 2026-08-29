@@ -149,6 +149,7 @@ body {
 	width: 100vw;
 	height: 100vh;
 	background: #0b1017;
+	cursor: pointer;
 	image-rendering: pixelated;
 }
 
