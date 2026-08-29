@@ -11,10 +11,7 @@ export interface SpawnPosition {
 	row: number;
 	column: number;
 }
-import { isCellWalkable, MAP_COLUMNS, MAP_ROWS } from "./Map.js";
-
-export const LOBBY_ROWS = MAP_ROWS;
-export const LOBBY_COLUMNS = MAP_COLUMNS;
+import { getMapBounds, INITIAL_MAP, isCellWalkable, type MapDefinition } from "./Map.js";
 
 /**
  * Lang: pt-BR
@@ -28,13 +25,15 @@ export const LOBBY_COLUMNS = MAP_COLUMNS;
 export function getRandomSpawn(
 	occupiedPositions: readonly SpawnPosition[],
 	random: () => number = Math.random,
+	map: MapDefinition = INITIAL_MAP,
 ): SpawnPosition {
 	const availablePositions: SpawnPosition[] = [];
 	const allPositions: SpawnPosition[] = [];
 
-	for (let row = 0; row < LOBBY_ROWS; row += 1) {
-		for (let column = 0; column < LOBBY_COLUMNS; column += 1) {
-			if (!isCellWalkable(row, column)) continue;
+	const { rows, columns } = getMapBounds(map);
+	for (let row = 0; row < rows; row += 1) {
+		for (let column = 0; column < columns; column += 1) {
+			if (!isCellWalkable(map, row, column)) continue;
 			allPositions.push({ row, column });
 			const occupied = occupiedPositions.some((position) => position.row === row && position.column === column);
 

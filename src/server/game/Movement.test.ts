@@ -45,3 +45,20 @@ test("authoritative route lock rejects concurrent intent and unlocks after compl
 	routes.clear();
 	assert.equal(routes.has(player), false);
 });
+
+test("route cancellation clears its active timer and prevents residual ownership", () => {
+	const routes = new RouteState<object>();
+	const player = {};
+	let emitted = false;
+	const timer = setTimeout(() => { emitted = true; }, 20);
+
+	assert.equal(routes.begin(player), true);
+	routes.setTimer(player, timer);
+	routes.cancel(player);
+	assert.equal(routes.has(player), false);
+
+	return new Promise<void>((resolve) => setTimeout(() => {
+		assert.equal(emitted, false);
+		resolve();
+	}, 30));
+});

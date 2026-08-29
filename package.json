@@ -5,7 +5,7 @@
 	"private": true,
 	"scripts": {
 		"dev": "node --env-file-if-exists=.env src/tooling/dev.mjs",
-		"test": "tsx --test src/server/game/Spawn.test.ts src/server/game/Movement.test.ts src/client/engine/Isometric.test.ts src/client/game/Map.test.ts src/client/ecs/Ecs.test.ts src/client/ecs/systems/Interaction.test.ts src/client/ecs/systems/RenderSystem.test.ts src/client/realtime/Protocol.test.ts src/client/realtime/Realtime.test.ts && tsc --noEmit && eslint .",
+		"test": "tsx --test src/server/game/GameConfig.test.ts src/server/game/Spawn.test.ts src/server/game/Movement.test.ts src/client/engine/Isometric.test.ts src/client/game/Map.test.ts src/client/game/MapConfig.test.ts src/client/game/Entities.test.ts src/client/game/Parity.test.ts src/client/ecs/Ecs.test.ts src/client/ecs/systems/Interaction.test.ts src/client/ecs/systems/RenderSystem.test.ts src/client/realtime/Protocol.test.ts src/client/realtime/Realtime.test.ts src/server/game/Channels.test.ts src/client/game/Game.test.ts && tsc --noEmit && eslint .",
 		"deploy": "node src/tooling/deploy.mjs",
 		"db:setup": "node --env-file=.env src/server/database/setup.mjs"
 	},

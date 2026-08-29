@@ -28,24 +28,47 @@ if (initialBuild.status !== 0) {
 }
 
 const children = [
-	spawn(process.execPath, [tsc, "--watch", "--preserveWatchOutput", "--project", "tsconfig.build.json"], { stdio: "inherit" }),
-	spawn(process.execPath, [tsx, "watch", "src/server/index.ts"], { stdio: "inherit" }),
+	spawn(process.execPath, [tsc, "--watch", "--preserveWatchOutput", "--project", "tsconfig.build.json"], {
+		detached: process.platform !== "win32",
+		stdio: "inherit",
+	}),
+	spawn(process.execPath, [tsx, "watch", "src/server/index.ts"], {
+		detached: process.platform !== "win32",
+		stdio: "inherit",
+	}),
 ];
 
-const stop = () => {
+let stopping = false;
+
+// Lang: pt-BR
+// Encerra a árvore inteira porque watchers criam netos; matar apenas o filho direto deixa o server órfão no Windows.
+// Lang: en-US
+// Terminates the whole tree because watchers create grandchildren; killing only the direct child orphans the server on Windows.
+const stop = (exitCode = 0) => {
+	if (stopping) return;
+	stopping = true;
 	for (const child of children) {
-		child.kill();
+		if (!child.pid) continue;
+		if (process.platform === "win32") {
+			spawnSync("taskkill", ["/pid", String(child.pid), "/T", "/F"], { stdio: "ignore" });
+		} else {
+			try {
+				process.kill(-child.pid, "SIGTERM");
+			} catch {
+				// O processo pode ter encerrado antes do sibling disparar o cleanup.
+				// The process may have exited before its sibling triggered cleanup.
+			}
+		}
 	}
+	process.exit(exitCode);
 };
 
-process.on("SIGINT", stop);
-process.on("SIGTERM", stop);
+process.on("SIGINT", () => stop());
+process.on("SIGTERM", () => stop());
 
 for (const child of children) {
 	child.on("exit", (code) => {
-		if (code && code !== 0) {
-			stop();
-			process.exit(code);
-		}
+		if (!stopping) stop(code ?? 0);
 	});
+	child.on("error", () => stop(1));
 }

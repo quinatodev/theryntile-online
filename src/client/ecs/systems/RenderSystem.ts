@@ -8,10 +8,10 @@
 import { type Camera } from "../../engine/Camera.js";
 import { type CanvasSurface } from "../../engine/Canvas.js";
 import { gridToIsometric, TILE_VISUAL_GROUND_OFFSET_Y } from "../../engine/Isometric.js";
-import { type Entity, type GridPosition, type MovementComponent, type SpriteComponent } from "../Components.js";
+import { type Entity, type GridPosition, type MovementComponent, type RenderableComponent, type SpriteComponent } from "../Components.js";
 import { type World } from "../World.js";
 import { ANIMATION_FRAME_COUNT } from "./AnimationSystem.js";
-import { getLayerVisualOffsetY, getTileTextureSource, MAP_TILE_IDS } from "../../game/Map.js";
+import { getLayerVisualOffsetY, getTileTextureSource } from "../../game/Map.js";
 
 const TILE_WIDTH = 32;
 const TILE_FOOTPRINT_HEIGHT = 16;
@@ -47,6 +47,7 @@ export interface RenderOrder extends GridPosition {
 	depth: number;
 	layer: number;
 	order: number;
+	tieBreaker: number;
 }
 
 interface PlayerDrawable extends RenderOrder {
@@ -62,16 +63,37 @@ interface TileDrawable extends RenderOrder {
 interface HighlightDrawable extends RenderOrder {
 	entity: Entity;
 	kind: "highlight";
-	state: "hinted" | "hovered" | "selected";
+	state: "hinted" | "path" | "hovered" | "invalid" | "selected";
 }
 
 type Drawable = HighlightDrawable | PlayerDrawable | TileDrawable;
 
+/**
+ * Lang: pt-BR
+ * Ordena por grid, layer e categoria local; tieBreaker independente encerra empates sem depender da inserção.
+ * Layer precede order, portanto Player layer 1 nunca ultrapassa um drawable layer 2.
+ *
+ * Lang: en-US
+ * Orders by grid, layer, and local category; an independent tieBreaker resolves ties without insertion order.
+ * Layer precedes order, so a layer-1 Player never crosses a layer-2 drawable.
+ */
 export const compareRenderOrder = (a: RenderOrder, b: RenderOrder): number => a.depth - b.depth
 	|| a.row - b.row
 	|| a.column - b.column
 	|| a.layer - b.layer
-	|| a.order - b.order;
+	|| a.order - b.order
+	|| a.tieBreaker - b.tieBreaker;
+
+export const getRenderableRenderOrder = (
+	gridPosition: GridPosition,
+	renderable: RenderableComponent,
+	tieBreaker: number,
+): RenderOrder => ({
+	...gridPosition,
+	...renderable,
+	depth: gridPosition.row + gridPosition.column,
+	tieBreaker,
+});
 
 export const getMovementSortingGrid = (
 	gridPosition: GridPosition,
@@ -80,25 +102,12 @@ export const getMovementSortingGrid = (
 	? { column: movement.fromColumn, row: movement.fromRow }
 	: gridPosition;
 
-export const getHighlightRenderOrder = (gridPosition: GridPosition): RenderOrder => ({
+export const getHighlightRenderOrder = (gridPosition: GridPosition, tieBreaker = 0): RenderOrder => ({
 	...gridPosition,
 	depth: gridPosition.row + gridPosition.column,
 	layer: 0,
 	order: 1,
-});
-
-/**
- * Lang: pt-BR
- * Produz a prioridade local reservada do Player e usa seu ID somente como desempate determinístico entre Players.
- *
- * Lang: en-US
- * Produces the Player's reserved local priority and uses its ID only as a deterministic tie-break among Players.
- */
-export const getPlayerRenderOrder = (gridPosition: GridPosition, playerId: number): RenderOrder => ({
-	...gridPosition,
-	depth: gridPosition.row + gridPosition.column,
-	layer: PLAYER_LAYER,
-	order: PLAYER_ORDER + playerId,
+	tieBreaker,
 });
 
 /**
@@ -125,16 +134,22 @@ export const getTileHighlightState = (selected: boolean, hovered: boolean): "hov
 
 /**
  * Lang: pt-BR
- * Escolhe um único feedback por Tile, preservando a prioridade Selected > Hover > Hint.
+ * Escolhe um único feedback por Tile na prioridade Selected > Invalid > Hover > Path > Hint.
  *
  * Lang: en-US
- * Chooses one feedback state per Tile while preserving Selected > Hover > Hint priority.
+ * Chooses one feedback state per Tile with Selected > Invalid > Hover > Path > Hint priority.
  */
 export const getTileFeedbackState = (
 	selected: boolean,
+	invalid: boolean,
 	hovered: boolean,
+	path: boolean,
 	hinted: boolean,
-): "hinted" | "hovered" | "selected" | undefined => getTileHighlightState(selected, hovered) ?? (hinted ? "hinted" : undefined);
+): HighlightDrawable["state"] | undefined => selected ? "selected"
+	: invalid ? "invalid"
+		: hovered ? "hovered"
+			: path ? "path"
+				: hinted ? "hinted" : undefined;
 
 export const getHighlightDiamond = (worldPosition: Point): [Point, Point, Point, Point] => {
 	const centerY = worldPosition.y + TILE_VISUAL_GROUND_OFFSET_Y + TILE_FOOTPRINT_HEIGHT / 2;
@@ -164,13 +179,13 @@ export class RenderSystem {
 		private readonly playerTextures: ReadonlyMap<string, HTMLImageElement>,
 	) {}
 
-	static async create(surface: CanvasSurface): Promise<RenderSystem> {
+	static async create(surface: CanvasSurface, tileIds: readonly number[]): Promise<RenderSystem> {
 		const tileTextures = new Map<number, HTMLImageElement>();
 		const playerTextures = new Map<string, HTMLImageElement>();
 		const directions = ["left_down", "left_top", "right_down", "right_top"] as const;
 
 		await Promise.all([
-			...MAP_TILE_IDS.map(async (tileId) => tileTextures.set(tileId, await loadImage(getTileTextureSource(tileId)))),
+			...tileIds.map(async (tileId) => tileTextures.set(tileId, await loadImage(getTileTextureSource(tileId)))),
 			...directions.flatMap((direction) => ["idle", "walk"].map(async (state) => {
 				const key = `${state}_${direction}`;
 				playerTextures.set(key, await loadImage(`/assets/textures/characters/hana/${key}.png`));
@@ -190,18 +205,23 @@ export class RenderSystem {
 
 			if (!gridPosition || !renderable) continue;
 			drawables.push({
-				...gridPosition,
-				...renderable,
-				depth: gridPosition.row + gridPosition.column,
+				...getRenderableRenderOrder(gridPosition, renderable, entity),
 				entity,
 				kind: "tile",
+				tieBreaker: entity,
 			});
 
 			const selected = world.selectedTiles.has(entity);
-			const highlightState = getTileFeedbackState(selected, world.hoveredTiles.has(entity), world.hintedTiles.has(entity));
+			const highlightState = getTileFeedbackState(
+				selected,
+				world.invalidHoveredTiles.has(entity),
+				world.hoveredTiles.has(entity),
+				world.pathPreviewTiles.has(entity),
+				world.hintedTiles.has(entity),
+			);
 			if (highlightState) {
 				drawables.push({
-					...getHighlightRenderOrder(gridPosition),
+					...getHighlightRenderOrder(gridPosition, entity),
 					entity,
 					kind: "highlight",
 					state: highlightState,
@@ -215,13 +235,15 @@ export class RenderSystem {
 			const sprite = world.sprites.get(entity);
 			const animation = world.animations.get(entity);
 			const player = world.players.get(entity);
+			const renderable = world.renderables.get(entity);
 
-			if (!gridPosition || !visualPosition || !sprite || !animation || !player) continue;
+			if (!gridPosition || !visualPosition || !sprite || !animation || !player || !renderable) continue;
 			const sortingGrid = getMovementSortingGrid(gridPosition, world.movements.get(entity));
 			drawables.push({
-				...getPlayerRenderOrder(sortingGrid, player.id),
+				...getRenderableRenderOrder(sortingGrid, renderable, player.id),
 				entity,
 				kind: "player",
+				tieBreaker: player.id,
 			});
 		}
 
@@ -255,10 +277,12 @@ export class RenderSystem {
 				context.lineTo(bottom.x, bottom.y);
 				context.lineTo(left.x, left.y);
 				context.closePath();
-				const hintAlpha = 0.12 + (Math.sin(timestamp / 250) + 1) * 0.08;
+				const hintAlpha = (0.25 + (Math.sin(timestamp / 250) + 1) * 0.08) * world.walkHintAlpha;
 				context.fillStyle = drawable.state === "selected"
-					? "rgba(241, 171, 9, 0.7)"
-					: drawable.state === "hovered" ? "rgba(15, 198, 239, 0.68)" : `rgba(85, 220, 120, ${hintAlpha})`;
+					? "rgba(20, 255, 161, 0.7)"
+					: drawable.state === "invalid" ? "rgba(225, 48, 48, 0.72)"
+						: drawable.state === "hovered" ? "rgba(15, 198, 239, 0.68)"
+							: drawable.state === "path" ? "rgba(49, 170, 238, 0.42)" : `rgba(20, 255, 161, ${hintAlpha})`;
 				context.strokeStyle = drawable.state === "selected" ? "transparent" : drawable.state === "hovered" ? "transparent" : "transparent";
 				context.lineWidth = Math.max(1.5, camera.zoom * 1.5);
 				context.fill();

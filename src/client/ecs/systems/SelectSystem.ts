@@ -1,20 +1,23 @@
 /**
  * Lang: pt-BR
- * Mantém no máximo um ground Tile caminhável selecionado, independentemente do estado de hover.
+ * Mantém no máximo um destino selecionado e exige path dentro do limite runtime sem rota local ativa.
  * Cells bloqueadas por qualquer layer são recusadas mesmo quando o grass inferior é informado diretamente.
  *
  * Lang: en-US
- * Keeps at most one walkable ground Tile selected, independently from hover state.
+ * Keeps at most one selected target and requires a path within the runtime limit with no active local route.
  * Cells blocked by any layer are rejected even when the lower grass is supplied directly.
  */
 import { type Entity } from "../Components.js";
 import { type World } from "../World.js";
 import { isCellWalkable } from "../../game/Map.js";
+import { type RuntimeMap } from "../../game/Map.js";
 
 export class SelectSystem {
-	select(world: World, entity: Entity | undefined): Entity | undefined {
+	select(world: World, map: RuntimeMap, entity: Entity | undefined, pathLength?: number, maxMovementSteps?: number, routeActive = false): Entity | undefined {
 		const grid = entity === undefined ? undefined : world.gridPositions.get(entity);
-		if (entity === undefined || !world.tiles.has(entity) || !grid || !isCellWalkable(grid.row, grid.column)) return undefined;
+		if (entity === undefined || !world.tiles.has(entity) || !grid || !isCellWalkable(map, grid.row, grid.column)
+			|| pathLength === undefined || maxMovementSteps === undefined
+			|| pathLength <= 0 || pathLength > maxMovementSteps || routeActive) return undefined;
 		world.selectedTiles.clear();
 		world.selectedTiles.add(entity);
 

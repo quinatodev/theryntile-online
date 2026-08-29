@@ -7,9 +7,73 @@
  * Interpolates only each step already authorized by the server, preserving Walk between steps.
  * Only finalStep releases the visual route lock and returns animation to Idle.
  */
+import { gridToIsometric } from "../../engine/Isometric.js";
+import { type Entity, type MovementStep } from "../Components.js";
 import { type World } from "../World.js";
 
 export const MOVEMENT_DURATION_MS = 500;
+const TILE_WIDTH = 32;
+const TILE_FOOTPRINT_HEIGHT = 16;
+
+const movementDirection = ({ column, fromColumn, fromRow, row }: MovementStep) => {
+	if (column > fromColumn) return "right_down" as const;
+	if (column < fromColumn) return "left_top" as const;
+	if (row > fromRow) return "left_down" as const;
+
+	return "right_top" as const;
+};
+
+const startNextMovement = (world: World, entity: Entity): boolean => {
+	const queue = world.movementQueues.get(entity);
+	if (!queue) return false;
+	const step = queue.shift();
+	if (!step) {
+		world.movementQueues.delete(entity);
+
+		return false;
+	}
+	if (queue.length === 0) world.movementQueues.delete(entity);
+	const gridPosition = world.gridPositions.get(entity);
+	const visualPosition = world.visualPositions.get(entity);
+	const animation = world.animations.get(entity);
+	if (!gridPosition || !visualPosition || !animation) {
+		world.movementQueues.delete(entity);
+		world.movingPlayers.delete(entity);
+
+		return false;
+	}
+	const target = gridToIsometric(step.column, step.row, TILE_WIDTH, TILE_FOOTPRINT_HEIGHT);
+	world.movements.set(entity, {
+		finalStep: step.finalStep, fromColumn: step.fromColumn, fromRow: step.fromRow, progress: 0,
+		startX: visualPosition.x, startY: visualPosition.y,
+		targetColumn: step.column, targetRow: step.row, targetX: target.x, targetY: target.y,
+	});
+	gridPosition.column = step.column;
+	gridPosition.row = step.row;
+	animation.direction = movementDirection(step);
+	animation.state = "walk";
+	animation.frame = 0;
+	delete animation.startedAt;
+
+	return true;
+};
+
+/**
+ * Lang: pt-BR
+ * Enfileira somente um step autoritativo recebido e inicia seu playback apenas quando nenhum step visual está ativo.
+ * A fila preserva a ordem do WebSocket e não concede decisão de movimento ao client.
+ *
+ * Lang: en-US
+ * Enqueues only a received authoritative step and starts its playback only when no visual step is active.
+ * The queue preserves WebSocket order and grants no movement authority to the client.
+ */
+export const enqueueMovementStep = (world: World, entity: Entity, step: MovementStep): void => {
+	const queue = world.movementQueues.get(entity) ?? [];
+	queue.push(step);
+	world.movementQueues.set(entity, queue);
+	world.movingPlayers.add(entity);
+	if (!world.movements.has(entity)) startNextMovement(world, entity);
+};
 
 export class MovementSystem {
 	update(world: World, timestamp: number): void {
@@ -26,9 +90,13 @@ export class MovementSystem {
 			visualPosition.y = movement.startY + (movement.targetY - movement.startY) * movement.progress;
 
 			if (movement.progress >= 1) {
+				visualPosition.x = movement.targetX;
+				visualPosition.y = movement.targetY;
 				world.movements.delete(entity);
-				if (movement.finalStep) {
+				const nextStarted = startNextMovement(world, entity);
+				if (!nextStarted && movement.finalStep) {
 					world.movingPlayers.delete(entity);
+					if (world.localPlayers.has(entity)) world.selectedTiles.clear();
 					animation.state = "idle";
 					animation.startedAt = timestamp;
 					animation.frame = 0;

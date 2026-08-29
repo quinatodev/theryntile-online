@@ -6,6 +6,13 @@ import { SelectSystem } from "./SelectSystem.js";
 import { WalkHintSystem } from "./WalkHintSystem.js";
 import { World } from "../World.js";
 
+const TEST_MAP = {
+	0: Array.from({ length: 11 }, () => Array<number>(11).fill(1)),
+	1: Array.from({ length: 11 }, (_, row) => Array.from(
+		{ length: 11 }, (_, column) => row === 4 && column === 4 ? 101 : 0,
+	)),
+};
+
 const createTileWorld = () => {
 	const world = new World();
 	const first = world.createEntity();
@@ -24,11 +31,11 @@ test("HoverSystem resolves one Tile with Camera/zoom and clears hover outside", 
 	const { first, second, world } = createTileWorld();
 	const system = new HoverSystem();
 	const camera = { x: 0, y: 0, zoom: 2 };
-	assert.equal(system.update(world, camera, 100, 100, { canvasX: 50, canvasY: 82, inside: true }), first);
+	assert.equal(system.update(world, TEST_MAP, camera, 100, 100, { canvasX: 50, canvasY: 82, inside: true }), first);
 	assert.deepEqual([...world.hoveredTiles], [first]);
-	assert.equal(system.update(world, camera, 100, 100, { canvasX: 82, canvasY: 98, inside: true }), second);
+	assert.equal(system.update(world, TEST_MAP, camera, 100, 100, { canvasX: 82, canvasY: 98, inside: true }), second);
 	assert.deepEqual([...world.hoveredTiles], [second]);
-	assert.equal(system.update(world, camera, 100, 100, { canvasX: 0, canvasY: 0, inside: false }), undefined);
+	assert.equal(system.update(world, TEST_MAP, camera, 100, 100, { canvasX: 0, canvasY: 0, inside: false }), undefined);
 	assert.equal(world.hoveredTiles.size, 0);
 });
 
@@ -37,13 +44,14 @@ test("a Player on a Tile does not prevent HoverSystem from resolving that Tile",
 	const player = world.createEntity();
 	world.players.set(player, { id: 1, name: "Hana" });
 	world.gridPositions.set(player, { column: 0, row: 0 });
-	assert.equal(new HoverSystem().update(world, { x: 0, y: 0, zoom: 1 }, 100, 100, { canvasX: 50, canvasY: 66, inside: true }), first);
+	assert.equal(new HoverSystem().update(world, TEST_MAP, { x: 0, y: 0, zoom: 1 }, 100, 100, { canvasX: 50, canvasY: 66, inside: true }), first);
 });
 
 test("HoverSystem does not capture the area 8px above the visual ground", () => {
 	const { world } = createTileWorld();
 	const hovered = new HoverSystem().update(
 		world,
+		TEST_MAP,
 		{ x: 0, y: 0, zoom: 1 },
 		100,
 		100,
@@ -57,10 +65,10 @@ test("SelectSystem keeps exactly one selected Tile independently from hover", ()
 	const { first, second, world } = createTileWorld();
 	const system = new SelectSystem();
 	world.hoveredTiles.add(first);
-	system.select(world, first);
+	system.select(world, TEST_MAP, first, 1, 5);
 	world.hoveredTiles.clear();
 	assert.deepEqual([...world.selectedTiles], [first]);
-	system.select(world, second);
+	system.select(world, TEST_MAP, second, 1, 5);
 	assert.deepEqual([...world.selectedTiles], [second]);
 });
 
@@ -74,9 +82,9 @@ test("blocked multi-layer cells have no Hover click-through to their ground Tile
 		world.gridPositions.set(entity, { column: 4, row: 4 });
 		world.renderables.set(entity, { layer, order: 0 });
 	}
-	assert.equal(new HoverSystem().update(world, { x: 0, y: 0, zoom: 1 }, 100, 100, { canvasX: 50, canvasY: 130, inside: true }), undefined);
+	assert.equal(new HoverSystem().update(world, TEST_MAP, { x: 0, y: 0, zoom: 1 }, 100, 100, { canvasX: 50, canvasY: 130, inside: true }), undefined);
 	assert.equal(world.hoveredTiles.size, 0);
-	assert.equal(new SelectSystem().select(world, ground), undefined);
+	assert.equal(new SelectSystem().select(world, TEST_MAP, ground, 1, 5), undefined);
 	assert.equal(world.selectedTiles.size, 0);
 });
 
@@ -91,11 +99,11 @@ test("WalkHintSystem waits 2s, excludes the current cell, and resets during move
 	const player = world.createEntity();
 	world.gridPositions.set(player, { column: 0, row: 0 });
 	world.localPlayers.add(player);
-	const system = new WalkHintSystem();
+	const system = new WalkHintSystem(TEST_MAP, 5);
 	system.update(world, player, 0);
 	system.update(world, player, 1_999);
 	assert.equal(world.hintedTiles.size, 0);
-	system.update(world, player, 2_000);
+	system.update(world, player, 2_560);
 	assert.equal(world.hintedTiles.size, 5);
 	world.movingPlayers.add(player);
 	system.update(world, player, 2_001);

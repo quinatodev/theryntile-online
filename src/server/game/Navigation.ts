@@ -1,14 +1,15 @@
-import { isCellWalkable } from "./Map.js";
+import { INITIAL_MAP, isCellWalkable, type MapDefinition } from "./Map.js";
 import { type SpawnPosition } from "./Spawn.js";
+import { GAME_CONFIG } from "./GameConfig.js";
 
 /**
  * Lang: pt-BR
- * Limita a cinco steps a rota autoritativa completa aceita para uma intenção do client.
+ * Limita a rota autoritativa completa ao máximo global configurado para uma intenção do client.
  *
  * Lang: en-US
- * Limits the complete authoritative route accepted from one client intent to five steps.
+ * Limits the complete authoritative route accepted from one client intent to the configured global maximum.
  */
-export const MAX_MOVEMENT_STEPS = 5;
+export const MAX_MOVEMENT_STEPS = GAME_CONFIG.movement.maxSteps;
 const NEIGHBOURS = [
 	{ column: 0, row: -1 }, { column: -1, row: 0 },
 	{ column: 1, row: 0 }, { column: 0, row: 1 },
@@ -23,8 +24,8 @@ const heuristic = (a: SpawnPosition, b: SpawnPosition) => Math.abs(a.row - b.row
  * Lang: en-US
  * Runs authoritative orthogonal A* with deterministic neighbours and insertion-order tie-breaking.
  */
-export function findPath(start: SpawnPosition, target: SpawnPosition): SpawnPosition[] | undefined {
-	if (!isCellWalkable(start.row, start.column) || !isCellWalkable(target.row, target.column)) return undefined;
+export function findPath(start: SpawnPosition, target: SpawnPosition, map: MapDefinition = INITIAL_MAP): SpawnPosition[] | undefined {
+	if (!isCellWalkable(map, start.row, start.column) || !isCellWalkable(map, target.row, target.column)) return undefined;
 	if (start.row === target.row && start.column === target.column) return [];
 	const open: Array<{ position: SpawnPosition; g: number; f: number; sequence: number }> = [
 		{ position: start, g: 0, f: heuristic(start, target), sequence: 0 },
@@ -51,7 +52,7 @@ export function findPath(start: SpawnPosition, target: SpawnPosition): SpawnPosi
 
 		for (const delta of NEIGHBOURS) {
 			const next = { row: current.position.row + delta.row, column: current.position.column + delta.column };
-			if (!isCellWalkable(next.row, next.column)) continue;
+			if (!isCellWalkable(map, next.row, next.column)) continue;
 			const nextCost = current.g + 1;
 			if (nextCost >= (costs.get(keyOf(next)) ?? Number.POSITIVE_INFINITY)) continue;
 			costs.set(keyOf(next), nextCost);
@@ -66,10 +67,10 @@ export function findPath(start: SpawnPosition, target: SpawnPosition): SpawnPosi
 
 /**
  * Lang: pt-BR
- * Autoriza somente uma rota A* completa de um a cinco steps; paths maiores nunca são truncados.
+ * Autoriza somente uma rota A* completa dentro do máximo configurado; paths maiores nunca são truncados.
  *
  * Lang: en-US
- * Authorizes only a complete A* route of one through five steps; longer paths are never truncated.
+ * Authorizes only a complete A* route within the configured maximum; longer paths are never truncated.
  */
 export const getAuthorizedPath = (start: SpawnPosition, target: SpawnPosition): SpawnPosition[] | undefined => {
 	const path = findPath(start, target);

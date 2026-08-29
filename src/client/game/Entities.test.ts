@@ -1,0 +1,45 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+
+import { World } from "../ecs/World.js";
+import { PLAYER_LAYER, PLAYER_ORDER, getRenderableRenderOrder } from "../ecs/systems/RenderSystem.js";
+import { createPlayerEntity, createTileEntity } from "./Entities.js";
+
+test("createPlayerEntity installs independent complete Local and remote Player Components", () => {
+	const world = new World();
+	const local = createPlayerEntity(world, { id: 10, name: "Local", row: 1, column: 2 }, true);
+	const remoteA = createPlayerEntity(world, { id: 20, name: "Remote A", row: 3, column: 4 }, false);
+	const remoteB = createPlayerEntity(world, { id: 30, name: "Remote B", row: 5, column: 6 }, false);
+	assert.equal(new Set([local, remoteA, remoteB]).size, 3);
+	assert.deepEqual(world.gridPositions.get(local), { row: 1, column: 2 });
+	assert.deepEqual(world.visualPositions.get(local), { x: 16, y: 24 });
+	assert.deepEqual(world.players.get(local), { id: 10, name: "Local" });
+	assert.deepEqual(world.animations.get(local), { direction: "left_down", frame: 0, state: "idle" });
+	assert.deepEqual(world.sprites.get(local), {
+		feetOffsetY: 16, frameHeight: 48, frameWidth: 32, offsetX: 0, offsetY: 0,
+	});
+	assert.deepEqual(world.renderables.get(local), { layer: PLAYER_LAYER, order: PLAYER_ORDER });
+	assert.equal(world.localPlayers.has(local), true);
+	assert.equal(world.localPlayers.has(remoteA), false);
+	assert.equal(world.localPlayers.has(remoteB), false);
+	assert.deepEqual(world.players.get(remoteA), { id: 20, name: "Remote A" });
+	assert.deepEqual(world.players.get(remoteB), { id: 30, name: "Remote B" });
+	const renderable = world.renderables.get(local);
+	const grid = world.gridPositions.get(local);
+	assert.ok(renderable && grid);
+	assert.deepEqual(getRenderableRenderOrder(grid, renderable, 10), {
+		column: 2, depth: 3, layer: PLAYER_LAYER, order: PLAYER_ORDER, row: 1, tieBreaker: 10,
+	});
+});
+
+test("createTileEntity installs grid, texture, and layer render configuration per Entity", () => {
+	const world = new World();
+	const ground = createTileEntity(world, 2, 3, 0, 1);
+	const upper = createTileEntity(world, 2, 3, 1, 101);
+	assert.notEqual(ground, upper);
+	assert.deepEqual(world.gridPositions.get(ground), { row: 2, column: 3 });
+	assert.deepEqual(world.tiles.get(ground), { textureId: 1 });
+	assert.deepEqual(world.renderables.get(ground), { layer: 0, order: 0 });
+	assert.deepEqual(world.tiles.get(upper), { textureId: 101 });
+	assert.deepEqual(world.renderables.get(upper), { layer: 1, order: 0 });
+});

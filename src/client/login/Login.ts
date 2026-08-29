@@ -10,6 +10,7 @@
 import { type ChannelState, type EnterChannelRejectionReason, type PlayerMovedMessage, type PlayerState } from "../realtime/Protocol.js";
 import { startGame, type Game } from "../game/Game.js";
 import { createRealtime } from "../realtime/Realtime.js";
+import { parseGameBootstrapConfig } from "../game/MapConfig.js";
 
 interface LoginResponse {
 	player: { id: number; name: string };
@@ -302,7 +303,32 @@ const realtime = createRealtime({
 		root.dataset.state = "loading";
 
 		try {
-			const startedGame = await startGame(gameCanvas, message.player, message.players, (row, column) => realtime.move(row, column));
+			const configResponse = await fetch("/game/config");
+			if (!configResponse.ok) {
+				const responseBody = await configResponse.text();
+				throw new Error(`GAME_CONFIG_FAILED: HTTP ${configResponse.status}; ${responseBody}`);
+			}
+			const bootstrap = parseGameBootstrapConfig(await configResponse.json());
+			const startedGame = await startGame(
+				gameCanvas,
+				message.player,
+				message.players,
+				(row, column) => realtime.move(row, column),
+				bootstrap,
+				async (zoom) => {
+					const response = await fetch("/game/preferences/zoom", {
+						body: JSON.stringify({ zoom }),
+						headers: { "Content-Type": "application/json" },
+						method: "PUT",
+					});
+					if (!response.ok) throw new Error("ZOOM_SAVE_FAILED");
+				},
+				(error) => {
+					console.error("Game runtime failed.", error);
+					realtime.close();
+					showLogin(GAME_START_FAILED_MESSAGE);
+				},
+			);
 
 			// Lang: pt-BR
 			// startGame prepara sem efeitos; somente a geração de Loading ainda atual pode ativá-lo.

@@ -8,6 +8,7 @@
  * sid is operational socket metadata; session persistence remains in Session.ts.
  */
 import { database } from "../database/Database.js";
+import { closeSocketAfterSend, createInitializationGuard, isValidChannelCapacity } from "./ChannelLifecycle.js";
 import { getAuthorizedPath } from "./Navigation.js";
 import { getRandomSpawn } from "./Spawn.js";
 import { RouteState } from "./RouteState.js";
@@ -57,6 +58,7 @@ const accountSockets = new Map<number, Set<ChannelSocket>>();
 const OPEN_SOCKET_STATE = 1;
 const MOVEMENT_STEP_MS = 500;
 const activeRoutes = new RouteState<ChannelSocket>();
+const claimInitialization = createInitializationGuard();
 
 const serializePlayer = ({ id, name, row, column }: ChannelPlayer) => ({ id, name, row, column });
 
@@ -277,16 +279,22 @@ const handleClose = (socket: ChannelSocket, accountId: number) => {
 
 /**
  * Lang: pt-BR
- * Cancela rotas antigas, carrega o catálogo persistido e inicializa presença vazia para cada channel no runtime.
+ * Executa uma única vez por processo, carrega o catálogo validado e inicializa presença vazia para cada channel.
+ * Uma segunda chamada falha antes de substituir qualquer estado process-local.
  *
  * Lang: en-US
- * Cancels old routes, loads the persisted catalog, and initializes empty presence for each runtime channel.
+ * Runs once per process, loads the validated catalog, and initializes empty presence for each channel.
+ * A second call fails before replacing any process-local state.
  */
 export async function initializeChannels(): Promise<void> {
+	claimInitialization();
 	activeRoutes.clear();
 	const result = await database.query<ChannelRow>(
 		"SELECT id, name, capacity FROM game_servers ORDER BY id",
 	);
+	if (result.rows.some(({ capacity }) => !isValidChannelCapacity(capacity))) {
+		throw new Error("Every channel capacity must be a positive safe integer.");
+	}
 
 	channels.splice(0, channels.length, ...result.rows.map((channel) => ({
 		...channel,
@@ -357,11 +365,7 @@ const closeSocketWithMessage = (socket: ChannelSocket, type: "SESSION_REPLACED" 
 	lobbySockets.delete(socket);
 
 	if (socket.readyState === OPEN_SOCKET_STATE) {
-		try {
-			socket.send(message, () => socket.close(closeCode, type));
-		} catch {
-			socket.close(closeCode, type);
-		}
+		closeSocketAfterSend(socket, message, closeCode, type);
 	} else {
 		socket.close(closeCode, type);
 	}

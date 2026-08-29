@@ -1,70 +1,47 @@
-/**
- * Lang: pt-BR
- * Define a entrada numérica multilayer usada apenas pela apresentação e navegação de UX do client.
- *
- * Lang: en-US
- * Defines the numeric multilayer entry used only by client presentation and UX navigation.
- */
-export enum MapLayer {
-	GROUND = 0,
-	LEVEL_1 = 1,
-}
+export type RuntimeMap = Readonly<Record<number, readonly (readonly number[])[]>>;
 
-/**
- * Lang: pt-BR
- * Define a elevação estrutural: cada layer visual sobe exatamente 8 px sem alterar GridPosition.
- *
- * Lang: en-US
- * Defines structural elevation: each visual layer rises exactly 8 px without changing GridPosition.
- */
 export const LAYER_HEIGHT = 8;
-
-const GROUND = [
-	[1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-	[1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-	[1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-	[1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-	[1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-	[1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-	[1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-	[1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-	[1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-	[1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-	[1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-] as const;
-
-const LEVEL_1 = [
-	[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-	[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-	[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-	[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-	[0, 0, 0, 0, 101, 101, 101, 0, 0, 0, 0],
-	[0, 0, 0, 0, 101, 101, 101, 0, 0, 0, 0],
-	[0, 0, 0, 0, 101, 101, 101, 0, 0, 0, 0],
-	[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-	[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-	[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-	[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-] as const;
-
-export const GAME_MAP = {
-	[MapLayer.GROUND]: GROUND,
-	[MapLayer.LEVEL_1]: LEVEL_1,
-} as const;
-
-export const MAP_LAYERS = [MapLayer.GROUND, MapLayer.LEVEL_1] as const;
-export const MAP_ROWS = GROUND.length;
-export const MAP_COLUMNS = GROUND[0].length;
-export const MAP_TILE_IDS = [...new Set(MAP_LAYERS.flatMap((layer) => GAME_MAP[layer].flat()).filter((tileId) => tileId !== 0))];
-
 const TILE_TEXTURE_DIRECTORIES = ["grass", "ice"] as const;
 
 /**
  * Lang: pt-BR
- * Resolve o asset de um Tile pelo ID numérico presente na entrada do mapa, sem guardar paths nas cells.
+ * Deriva layers ordenadas exclusivamente do mapa runtime recebido pela API.
  *
  * Lang: en-US
- * Resolves a Tile asset from the numeric ID in the map entry without storing paths in cells.
+ * Derives sorted layers exclusively from the runtime map received through the API.
+ */
+export const getMapLayers = (map: RuntimeMap): number[] => Object.keys(map).map(Number).sort((a, b) => a - b);
+
+/**
+ * Lang: pt-BR
+ * Deriva bounds do mapa runtime validado, sem manter dimensões paralelas.
+ *
+ * Lang: en-US
+ * Derives bounds from the validated runtime map without parallel dimensions.
+ */
+export const getMapBounds = (map: RuntimeMap): { columns: number; rows: number } => {
+	const firstLayer = map[getMapLayers(map)[0] as number];
+
+	return { columns: firstLayer?.[0]?.length ?? 0, rows: firstLayer?.length ?? 0 };
+};
+
+/**
+ * Lang: pt-BR
+ * Extrai os IDs não vazios necessários para carregar exatamente as textures do mapa runtime.
+ *
+ * Lang: en-US
+ * Extracts non-empty IDs required to load exactly the runtime map textures.
+ */
+export const getMapTileIds = (map: RuntimeMap): number[] => [...new Set(
+	getMapLayers(map).flatMap((layer) => map[layer]?.flat() ?? []).filter((tileId) => tileId !== 0),
+)];
+
+/**
+ * Lang: pt-BR
+ * Resolve o asset de Tile pelo ID validado presente no mapa runtime.
+ *
+ * Lang: en-US
+ * Resolves a Tile asset from a validated ID in the runtime map.
  */
 export const getTileTextureSource = (tileId: number): string => {
 	const directory = TILE_TEXTURE_DIRECTORIES[Math.floor(tileId / 100)];
@@ -75,35 +52,36 @@ export const getTileTextureSource = (tileId: number): string => {
 
 /**
  * Lang: pt-BR
- * Centraliza a regra mínima de terreno: ID 1 é caminhável e ID 101 é bloqueador.
+ * Centraliza a regra client-side de terreno espelhada para UX: ID 1 é caminhável.
  *
  * Lang: en-US
- * Centralizes the minimal terrain rule: ID 1 is walkable and ID 101 is blocking.
+ * Centralizes the client-side terrain rule mirrored for UX: ID 1 is walkable.
  */
 export const isTileWalkable = (tileId: number): boolean => tileId === 1;
 
 /**
  * Lang: pt-BR
- * Considera a cell caminhável somente quando está nos bounds e nenhum Tile não vazio em qualquer layer a bloqueia.
+ * Avalia bounds e walkability usando somente o mapa runtime atual.
  *
  * Lang: en-US
- * Treats a cell as walkable only when it is in bounds and no non-empty Tile in any layer blocks it.
+ * Evaluates bounds and walkability using only the current runtime map.
  */
-export const isCellWalkable = (row: number, column: number): boolean => row >= 0
-	&& row < MAP_ROWS
-	&& column >= 0
-	&& column < MAP_COLUMNS
-	&& MAP_LAYERS.every((layer) => {
-		const tileId = GAME_MAP[layer][row]?.[column] ?? 0;
+export const isCellWalkable = (map: RuntimeMap, row: number, column: number): boolean => {
+	const { rows, columns } = getMapBounds(map);
 
-		return tileId === 0 || isTileWalkable(tileId);
-	});
+	return row >= 0 && row < rows && column >= 0 && column < columns
+		&& getMapLayers(map).every((layer) => {
+			const tileId = map[layer]?.[row]?.[column] ?? 0;
+
+			return tileId === 0 || isTileWalkable(tileId);
+		});
+};
 
 /**
  * Lang: pt-BR
- * Converte layer estrutural no deslocamento vertical usado pelo render e por sua geometria associada.
+ * Converte layer estrutural no deslocamento vertical usado somente pela apresentação.
  *
  * Lang: en-US
- * Converts structural layer into the vertical offset used by rendering and its associated geometry.
+ * Converts a structural layer into the vertical offset used only by presentation.
  */
 export const getLayerVisualOffsetY = (layer: number): number => layer === 0 ? 0 : -layer * LAYER_HEIGHT;

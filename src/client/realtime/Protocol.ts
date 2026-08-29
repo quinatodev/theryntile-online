@@ -7,6 +7,7 @@
  * Defines the client-side WebSocket message contract and validates data received at runtime.
  * TypeScript types do not make network payloads trustworthy, so every server message goes through the parser.
  */
+
 export interface ChannelState {
 	id: number;
 	name: string;
@@ -104,7 +105,9 @@ const isPositiveInteger = (value: unknown): value is number => Number.isSafeInte
 
 const isNonNegativeInteger = (value: unknown): value is number => Number.isSafeInteger(value) && Number(value) >= 0;
 
-const isGridCoordinate = (value: unknown): value is number => Number.isSafeInteger(value) && Number(value) >= 0 && Number(value) < 11;
+const isGridRow = (value: unknown): value is number => Number.isSafeInteger(value) && Number(value) >= 0;
+
+const isGridColumn = (value: unknown): value is number => Number.isSafeInteger(value) && Number(value) >= 0;
 
 /**
  * Lang: pt-BR
@@ -122,8 +125,8 @@ export function isMoveMessage(value: unknown): value is MoveMessage {
 	const keys = Object.keys(message);
 
 	return message.type === "MOVE"
-		&& isGridCoordinate(message.row)
-		&& isGridCoordinate(message.column)
+		&& isGridRow(message.row)
+		&& isGridColumn(message.column)
 		&& keys.length === 3
 		&& keys.includes("type")
 		&& keys.includes("row")
@@ -167,8 +170,8 @@ const isPlayerState = (value: unknown): value is PlayerState => {
 
 	return isPositiveInteger(player.id)
 		&& typeof player.name === "string"
-		&& isGridCoordinate(player.row)
-		&& isGridCoordinate(player.column);
+		&& isGridRow(player.row)
+		&& isGridColumn(player.column);
 };
 
 /**
@@ -209,10 +212,10 @@ export function parseRealtimeMessage(data: string): RealtimeMessage | null {
 		if (
 			message.type === "PLAYER_MOVED"
 			&& isPositiveInteger(message.playerId)
-			&& isGridCoordinate(message.fromRow)
-			&& isGridCoordinate(message.fromColumn)
-			&& isGridCoordinate(message.row)
-			&& isGridCoordinate(message.column)
+			&& isGridRow(message.fromRow)
+			&& isGridColumn(message.fromColumn)
+			&& isGridRow(message.row)
+			&& isGridColumn(message.column)
 			&& typeof message.finalStep === "boolean"
 			&& Math.abs(message.row - message.fromRow) + Math.abs(message.column - message.fromColumn) === 1
 		) {

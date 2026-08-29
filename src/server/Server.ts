@@ -29,6 +29,8 @@ import {
 	sessionCookieOptions,
 } from "./auth/Session.js";
 import { addLobbySocket, initializeChannels, replaceAccountConnections, revokeSessionConnections } from "./game/Channels.js";
+import { database } from "./database/Database.js";
+import { createGameBootstrapPayload, isAllowedZoom } from "./game/GameConfig.js";
 
 const sourceRoot = fileURLToPath(new URL("..", import.meta.url));
 const developmentSource = path.basename(sourceRoot) === "src";
@@ -190,6 +192,54 @@ export async function createServer(): Promise<FastifyInstance> {
 			return session;
 		} catch (error) {
 			request.log.error({ err: error }, "Session restoration failed unexpectedly");
+
+			return reply.code(500).send({ error: "INTERNAL_ERROR" });
+		}
+	});
+
+	/**
+	 * Lang: pt-BR
+	 * Entrega o contrato autoritativo do mapa e o zoom normalizado apenas para a Account derivada da sessÃ£o.
+	 *
+	 * Lang: en-US
+	 * Delivers the authoritative map contract and normalized zoom only for the Account derived from the session.
+	 */
+	server.get("/game/config", async (request, reply) => {
+		const token = request.cookies[SESSION_COOKIE_NAME];
+		try {
+			const session = token ? await restoreSessionDetails(token) : null;
+			if (!session) return reply.code(401).send({ error: "UNAUTHENTICATED" });
+			const result = await database.query<{ zoom: number }>("SELECT zoom FROM accounts WHERE id = $1", [session.accountId]);
+			const zoom = result.rows[0]?.zoom;
+			if (!Number.isInteger(zoom)) throw new Error("Account zoom is unavailable.");
+
+			return createGameBootstrapPayload(zoom);
+		} catch (error) {
+			request.log.error({ err: error }, "Game configuration failed unexpectedly");
+
+			return reply.code(500).send({ error: "INTERNAL_ERROR" });
+		}
+	});
+
+	/**
+	 * Lang: pt-BR
+	 * Persiste apenas um nÃ­vel discreto permitido, sem aceitar accountId escolhido pelo client.
+	 *
+	 * Lang: en-US
+	 * Persists only an allowed discrete level without accepting a client-selected accountId.
+	 */
+	server.put("/game/preferences/zoom", async (request, reply) => {
+		const token = request.cookies[SESSION_COOKIE_NAME];
+		const zoom = (request.body as { zoom?: unknown } | null)?.zoom;
+		if (typeof zoom !== "number" || !isAllowedZoom(zoom)) return reply.code(400).send({ error: "INVALID_ZOOM" });
+		try {
+			const session = token ? await restoreSessionDetails(token) : null;
+			if (!session) return reply.code(401).send({ error: "UNAUTHENTICATED" });
+			await database.query("UPDATE accounts SET zoom = $1 WHERE id = $2", [zoom, session.accountId]);
+
+			return { success: true };
+		} catch (error) {
+			request.log.error({ err: error }, "Zoom persistence failed unexpectedly");
 
 			return reply.code(500).send({ error: "INTERNAL_ERROR" });
 		}

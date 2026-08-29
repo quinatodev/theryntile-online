@@ -1,49 +1,81 @@
-/**
- * Lang: pt-BR
- * Espelha no servidor autoritativo a entrada multilayer 11×11 sem importar módulos do client.
+import { GAME_CONFIG, INITIAL_MAP_ID } from "./GameConfig.js";
+
+export type MapDefinition = Readonly<Record<number, readonly (readonly number[])[]>>;
+export const INITIAL_MAP: MapDefinition = GAME_CONFIG.maps[INITIAL_MAP_ID];
+
+/** Lang: pt-BR
+ * Deriva as layers numéricas ordenadas da definição, sem metadata global duplicada.
  *
  * Lang: en-US
- * Mirrors the 11×11 multilayer entry in the authoritative server without importing client modules.
+ * Derives sorted numeric layers from the definition without duplicated global metadata.
  */
-export enum MapLayer {
-	GROUND = 0,
-	LEVEL_1 = 1,
+export const getMapLayers = (map: MapDefinition): number[] => Object.keys(map).map(Number).sort((a, b) => a - b);
+
+/**
+ * Lang: pt-BR
+ * Valida todas as layers como matrizes retangulares, não vazias, compatíveis e com Tile IDs inteiros não negativos.
+ *
+ * Lang: en-US
+ * Validates every layer as a non-empty, rectangular, compatible matrix of non-negative integer Tile IDs.
+ */
+export function validateMapDefinition(map: MapDefinition): void {
+	const layers = getMapLayers(map);
+	if (layers.length === 0 || layers.some((layer) => !Number.isSafeInteger(layer) || layer < 0)) throw new Error("Map must contain valid layers.");
+	let rows: number | undefined;
+	let columns: number | undefined;
+	for (const layer of layers) {
+		const matrix = map[layer];
+		if (!Array.isArray(matrix) || matrix.length === 0) throw new Error("Every map layer must contain rows.");
+		rows ??= matrix.length;
+		if (matrix.length !== rows) throw new Error("Every map layer must have the same row count.");
+		for (const row of matrix) {
+			if (!Array.isArray(row) || row.length === 0) throw new Error("Every map row must contain columns.");
+			columns ??= row.length;
+			if (row.length !== columns) throw new Error("Every map row must have the same column count.");
+			if (row.some((tileId) => !Number.isSafeInteger(tileId) || tileId < 0)) throw new Error("Every Tile ID must be a non-negative safe integer.");
+		}
+	}
 }
 
-export const SERVER_MAP = {
-	[MapLayer.GROUND]: Array.from({ length: 11 }, () => Array<number>(11).fill(1)),
-	[MapLayer.LEVEL_1]: Array.from({ length: 11 }, (_, row) => Array.from(
-		{ length: 11 },
-		(_, column) => row >= 4 && row <= 6 && column >= 4 && column <= 6 ? 101 : 0,
-	)),
-} as const;
+/**
+ * Lang: pt-BR
+ * Deriva os bounds da definição validada do mapa.
+ *
+ * Lang: en-US
+ * Derives bounds from the validated map definition.
+ */
+export const getMapBounds = (map: MapDefinition): { columns: number; rows: number } => {
+	validateMapDefinition(map);
+	const firstLayer = map[getMapLayers(map)[0] as number] as readonly (readonly number[])[];
 
-export const MAP_LAYERS = [MapLayer.GROUND, MapLayer.LEVEL_1] as const;
-export const MAP_ROWS = SERVER_MAP[MapLayer.GROUND].length;
-export const MAP_COLUMNS = SERVER_MAP[MapLayer.GROUND][0]?.length ?? 0;
+	return { columns: firstLayer[0]?.length ?? 0, rows: firstLayer.length };
+};
 
 /**
  * Lang: pt-BR
- * Centraliza a regra autoritativa de terreno: ID 1 é caminhável e ID 101 é bloqueador.
+ * Centraliza a regra autoritativa mínima de terreno: ID 1 é caminhável.
  *
  * Lang: en-US
- * Centralizes the authoritative terrain rule: ID 1 is walkable and ID 101 is blocking.
+ * Centralizes the minimal authoritative terrain rule: ID 1 is walkable.
  */
 export const isTileWalkable = (tileId: number): boolean => tileId === 1;
 
 /**
  * Lang: pt-BR
- * Bloqueia uma cell fora dos bounds ou com qualquer Tile não caminhável em qualquer layer.
+ * Avalia bounds e walkability em todas as layers do mapa informado.
  *
  * Lang: en-US
- * Blocks an out-of-bounds cell or one containing any non-walkable Tile in any layer.
+ * Evaluates bounds and walkability across every layer of the supplied map.
  */
-export const isCellWalkable = (row: number, column: number): boolean => row >= 0
-	&& row < MAP_ROWS
-	&& column >= 0
-	&& column < MAP_COLUMNS
-	&& MAP_LAYERS.every((layer) => {
-		const tileId = SERVER_MAP[layer][row]?.[column] ?? 0;
+export const isCellWalkable = (map: MapDefinition, row: number, column: number): boolean => {
+	const { rows, columns } = getMapBounds(map);
 
-		return tileId === 0 || isTileWalkable(tileId);
-	});
+	return row >= 0 && row < rows && column >= 0 && column < columns
+		&& getMapLayers(map).every((layer) => {
+			const tileId = map[layer]?.[row]?.[column] ?? 0;
+
+			return tileId === 0 || isTileWalkable(tileId);
+		});
+};
+
+validateMapDefinition(INITIAL_MAP);

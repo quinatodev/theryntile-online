@@ -9,23 +9,19 @@ import { type Entity, type PlayerSnapshot, type PointerPosition } from "../ecs/C
 import { AnimationSystem } from "../ecs/systems/AnimationSystem.js";
 import { CameraSystem } from "../ecs/systems/CameraSystem.js";
 import { HoverSystem } from "../ecs/systems/HoverSystem.js";
-import { MovementSystem } from "../ecs/systems/MovementSystem.js";
-import { PLAYER_LAYER, PLAYER_ORDER, RenderSystem } from "../ecs/systems/RenderSystem.js";
+import { enqueueMovementStep, MovementSystem } from "../ecs/systems/MovementSystem.js";
+import { RenderSystem } from "../ecs/systems/RenderSystem.js";
 import { SelectSystem } from "../ecs/systems/SelectSystem.js";
 import { WalkHintSystem } from "../ecs/systems/WalkHintSystem.js";
 import { World } from "../ecs/World.js";
 import { changeCameraZoom, type Camera } from "../engine/Camera.js";
 import { resizeCanvasToViewport } from "../engine/Canvas.js";
-import { gridToIsometric } from "../engine/Isometric.js";
-import { GAME_MAP, MAP_LAYERS } from "./Map.js";
-import { findPath, MAX_MOVEMENT_STEPS } from "./Navigation.js";
+import { createPlayerEntity, createTileEntity } from "./Entities.js";
+import { getMapBounds, getMapLayers, getMapTileIds, isCellWalkable } from "./Map.js";
+import { findPath } from "./Navigation.js";
+import { type GameRuntimeConfig } from "./MapConfig.js";
 
-const TILE_WIDTH = 32;
 const TILE_FOOTPRINT_HEIGHT = 16;
-const PLAYER_FRAME_WIDTH = 32;
-const PLAYER_FRAME_HEIGHT = 48;
-const PLAYER_SPRITE_OFFSET_X = 0;
-const PLAYER_SPRITE_OFFSET_Y = 0;
 
 export interface PlayerMoved {
 	column: number;
@@ -44,46 +40,42 @@ export interface Game {
 	start(): void;
 }
 
-const movementDirection = ({ column, fromColumn, fromRow, row }: PlayerMoved) => {
-	if (column > fromColumn) return "right_down" as const;
-	if (column < fromColumn) return "left_top" as const;
-	if (row > fromRow) return "left_down" as const;
+/**
+ * Lang: pt-BR
+ * Trata uma exceção de frame como fatal: limpa a instância, notifica seu owner e impede continuação parcial.
+ *
+ * Lang: en-US
+ * Treats a frame exception as fatal: cleans the instance, notifies its owner, and prevents partial continuation.
+ */
+export function executeGameFrame(run: () => void, cleanup: () => void, onFatalError: (error: unknown) => void): boolean {
+	try {
+		run();
 
-	return "right_top" as const;
-};
+		return true;
+	} catch (error) {
+		cleanup();
+		onFatalError(error);
 
-const addTileEntities = (world: World): void => {
-	for (const layer of MAP_LAYERS) {
-		for (const [row, entries] of GAME_MAP[layer].entries()) {
+		return false;
+	}
+}
+
+/**
+ * Lang: pt-BR
+ * Materializa somente Tile IDs não vazios do mapa runtime validado usando a factory concreta existente.
+ *
+ * Lang: en-US
+ * Materializes only non-empty Tile IDs from the validated runtime map through the existing concrete factory.
+ */
+export const addTileEntities = (world: World, config: GameRuntimeConfig): void => {
+	for (const layer of getMapLayers(config.map)) {
+		for (const [row, entries] of (config.map[layer] ?? []).entries()) {
 			for (const [column, textureId] of entries.entries()) {
 				if (textureId === 0) continue;
-				const entity = world.createEntity();
-				world.gridPositions.set(entity, { column, row });
-				world.renderables.set(entity, { layer, order: 0 });
-				world.tiles.set(entity, { textureId });
+				createTileEntity(world, row, column, layer, textureId);
 			}
 		}
 	}
-};
-
-const addPlayerEntity = (world: World, player: PlayerSnapshot, local: boolean): Entity => {
-	const entity = world.createEntity();
-	const visualPosition = gridToIsometric(player.column, player.row, TILE_WIDTH, TILE_FOOTPRINT_HEIGHT);
-	world.animations.set(entity, { direction: "left_down", frame: 0, state: "idle" });
-	world.gridPositions.set(entity, { column: player.column, row: player.row });
-	world.players.set(entity, { id: player.id, name: player.name });
-	world.renderables.set(entity, { layer: PLAYER_LAYER, order: PLAYER_ORDER + player.id });
-	world.sprites.set(entity, {
-		feetOffsetY: TILE_FOOTPRINT_HEIGHT,
-		frameHeight: PLAYER_FRAME_HEIGHT,
-		frameWidth: PLAYER_FRAME_WIDTH,
-		offsetX: PLAYER_SPRITE_OFFSET_X,
-		offsetY: PLAYER_SPRITE_OFFSET_Y,
-	});
-	world.visualPositions.set(entity, visualPosition);
-	if (local) world.localPlayers.add(entity);
-
-	return entity;
 };
 
 /**
@@ -98,6 +90,9 @@ export async function startGame(
 	localPlayer: PlayerSnapshot,
 	initialRemotePlayers: readonly PlayerSnapshot[],
 	requestMove: (row: number, column: number) => boolean,
+	config: GameRuntimeConfig,
+	saveZoom: (zoom: number) => Promise<void>,
+	onFatalError: (error: unknown) => void = () => {},
 ): Promise<Game> {
 	const context = canvas.getContext("2d");
 	if (!context) throw new Error("Canvas 2D is not available.");
@@ -109,82 +104,159 @@ export async function startGame(
 	const cameraSystem = new CameraSystem();
 	const hoverSystem = new HoverSystem();
 	const selectSystem = new SelectSystem();
-	const walkHintSystem = new WalkHintSystem();
-	const renderSystem = await RenderSystem.create(surface);
+	const walkHintSystem = new WalkHintSystem(config.map, config.movement.maxSteps);
+	const renderSystem = await RenderSystem.create(surface, getMapTileIds(config.map));
 	const playerEntities = new Map<number, Entity>();
-	addTileEntities(world);
-	const localPlayerEntity = addPlayerEntity(world, localPlayer, true);
+	addTileEntities(world, config);
+	const mapBounds = getMapBounds(config.map);
+	for (const player of [localPlayer, ...initialRemotePlayers]) {
+		if (player.row < 0 || player.row >= mapBounds.rows || player.column < 0 || player.column >= mapBounds.columns) {
+			throw new Error(`Player ${player.id} is outside runtime map bounds.`);
+		}
+	}
+	const localPlayerEntity = createPlayerEntity(world, localPlayer, true);
 	playerEntities.set(localPlayer.id, localPlayerEntity);
-	for (const player of initialRemotePlayers) playerEntities.set(player.id, addPlayerEntity(world, player, false));
+	for (const player of initialRemotePlayers) playerEntities.set(player.id, createPlayerEntity(world, player, false));
 
 	const localVisualPosition = world.visualPositions.get(localPlayerEntity);
 	if (!localVisualPosition) throw new Error("Local Player visual position is not available.");
-	const camera: Camera = { x: localVisualPosition.x, y: localVisualPosition.y + TILE_FOOTPRINT_HEIGHT, zoom: 1 };
+	const camera: Camera = { x: localVisualPosition.x, y: localVisualPosition.y + TILE_FOOTPRINT_HEIGHT, zoom: config.zoomPreference };
 	let animationFrame: number | null = null;
 	let disposed = false;
 	let started = false;
+	let fatalHandled = false;
+	let disposeRuntime = () => {};
+	let zoomSaveTimer: number | null = null;
+	let lastSavedZoom = config.zoomPreference;
 	const pointer: PointerPosition = { canvasX: 0, canvasY: 0, inside: false };
 
 	const render = () => { if (started && !disposed) renderSystem.render(world, camera, performance.now()); };
 	const frame = (timestamp: number) => {
 		animationFrame = null;
 		if (!started || disposed) return;
-		hoverSystem.update(world, camera, canvas.width, canvas.height, pointer);
-		movementSystem.update(world, timestamp);
-		animationSystem.update(world, timestamp);
-		cameraSystem.update(world, camera);
-		walkHintSystem.update(world, localPlayerEntity, timestamp);
-		renderSystem.render(world, camera, timestamp);
+		const completed = executeGameFrame(() => {
+			updateHoverAndPath();
+			movementSystem.update(world, timestamp);
+			animationSystem.update(world, timestamp);
+			cameraSystem.update(world, camera);
+			walkHintSystem.update(world, localPlayerEntity, timestamp);
+			renderSystem.render(world, camera, timestamp);
+		}, () => {
+			if (fatalHandled) return;
+			fatalHandled = true;
+			disposeRuntime();
+		}, (error) => {
+			if (fatalHandled) onFatalError(error);
+		});
+		if (!completed) return;
 		animationFrame = window.requestAnimationFrame(frame);
 	};
 	const ensureAnimationFrame = () => {
 		if (started && !disposed && animationFrame === null) animationFrame = window.requestAnimationFrame(frame);
 	};
 	const resizeAndRender = () => { resizeCanvasToViewport(surface); render(); };
-	const zoomAndRender = (event: WheelEvent) => { event.preventDefault(); changeCameraZoom(camera, event.deltaY); render(); };
+	const zoomAndRender = (event: WheelEvent) => {
+		event.preventDefault();
+		const previous = camera.zoom;
+		changeCameraZoom(camera, event.deltaY, config.zoom.min, config.zoom.max);
+		if (camera.zoom !== previous && camera.zoom !== lastSavedZoom) {
+			if (zoomSaveTimer !== null) window.clearTimeout(zoomSaveTimer);
+			zoomSaveTimer = window.setTimeout(() => {
+				zoomSaveTimer = null;
+				const zoom = camera.zoom;
+				void saveZoom(zoom).then(() => { lastSavedZoom = zoom; }).catch((error: unknown) => {
+					console.error("Unable to persist camera zoom.", error);
+				});
+			}, 300);
+		}
+		render();
+	};
 	const updatePointer = (event: PointerEvent | MouseEvent) => {
 		const bounds = canvas.getBoundingClientRect();
 		pointer.canvasX = (event.clientX - bounds.left) * canvas.width / bounds.width;
 		pointer.canvasY = (event.clientY - bounds.top) * canvas.height / bounds.height;
 		pointer.inside = true;
 	};
-	const leaveCanvas = () => { pointer.inside = false; world.hoveredTiles.clear(); render(); };
+	const tileAt = (row: number, column: number) => [...world.tiles.keys()].find((entity) => {
+		const grid = world.gridPositions.get(entity);
+
+		return grid?.row === row && grid.column === column && world.renderables.get(entity)?.layer === 0;
+	});
+	const updateHoverAndPath = () => {
+		world.pathPreviewTiles.clear();
+		world.invalidHoveredTiles.clear();
+		const hoveredEntity = hoverSystem.update(world, config.map, camera, canvas.width, canvas.height, pointer);
+		if (hoveredEntity === undefined || world.movingPlayers.has(localPlayerEntity)) return hoveredEntity;
+		const target = world.gridPositions.get(hoveredEntity);
+		const current = world.gridPositions.get(localPlayerEntity);
+		if (!target || !current) return hoveredEntity;
+		const path = findPath(config.map, current, target);
+		if (!path || path.length === 0) return hoveredEntity;
+		if (path.length > config.movement.maxSteps) {
+			world.invalidHoveredTiles.add(hoveredEntity);
+
+			return hoveredEntity;
+		}
+		for (const position of path) {
+			const entity = tileAt(position.row, position.column);
+			if (entity !== undefined) world.pathPreviewTiles.add(entity);
+		}
+
+		return hoveredEntity;
+	};
+	const leaveCanvas = () => {
+		pointer.inside = false;
+		world.hoveredTiles.clear();
+		world.invalidHoveredTiles.clear();
+		world.pathPreviewTiles.clear();
+		render();
+	};
 	const selectClickedTile = (event: MouseEvent) => {
 		updatePointer(event);
 		if (world.movingPlayers.has(localPlayerEntity)) return;
-		const hoveredEntity = hoverSystem.update(world, camera, canvas.width, canvas.height, pointer);
+		const hoveredEntity = updateHoverAndPath();
 		const target = hoveredEntity === undefined ? undefined : world.gridPositions.get(hoveredEntity);
 		const current = world.gridPositions.get(localPlayerEntity);
 		if (!target || !current) return;
-		const path = findPath(current, target);
-		if (!path || path.length === 0 || path.length > MAX_MOVEMENT_STEPS || !requestMove(target.row, target.column)) return;
-		const selectedEntity = selectSystem.select(world, hoveredEntity);
+		const path = findPath(config.map, current, target);
+		if (!path || path.length === 0 || path.length > config.movement.maxSteps) return;
+		if (!requestMove(target.row, target.column)) return;
+		const selectedEntity = selectSystem.select(
+			world, config.map, hoveredEntity, path.length, config.movement.maxSteps, world.movingPlayers.has(localPlayerEntity),
+		);
 		if (selectedEntity === undefined) return;
 		world.movingPlayers.add(localPlayerEntity);
+		world.pathPreviewTiles.clear();
+		world.invalidHoveredTiles.clear();
 		walkHintSystem.reset(world);
 		render();
+	};
+	disposeRuntime = () => {
+		if (disposed) return;
+		disposed = true;
+		window.removeEventListener("resize", resizeAndRender);
+		canvas.removeEventListener("wheel", zoomAndRender);
+		canvas.removeEventListener("pointermove", updatePointer);
+		canvas.removeEventListener("pointerleave", leaveCanvas);
+		canvas.removeEventListener("click", selectClickedTile);
+		if (animationFrame !== null) window.cancelAnimationFrame(animationFrame);
+		if (zoomSaveTimer !== null) window.clearTimeout(zoomSaveTimer);
+		animationFrame = null;
+		zoomSaveTimer = null;
+		playerEntities.clear();
+		walkHintSystem.reset(world);
+		world.clear();
 	};
 
 	return {
 		dispose() {
-			if (disposed) return;
-			disposed = true;
-			window.removeEventListener("resize", resizeAndRender);
-			canvas.removeEventListener("wheel", zoomAndRender);
-			canvas.removeEventListener("pointermove", updatePointer);
-			canvas.removeEventListener("pointerleave", leaveCanvas);
-			canvas.removeEventListener("click", selectClickedTile);
-			if (animationFrame !== null) window.cancelAnimationFrame(animationFrame);
-			animationFrame = null;
-			playerEntities.clear();
-			walkHintSystem.reset(world);
-			world.clear();
+			disposeRuntime();
 		},
 		playerJoined(player) {
 			if (disposed) return;
 			const previousEntity = playerEntities.get(player.id);
 			if (previousEntity !== undefined) world.removeEntity(previousEntity);
-			playerEntities.set(player.id, addPlayerEntity(world, player, false));
+			playerEntities.set(player.id, createPlayerEntity(world, player, false));
 			render();
 		},
 		playerLeft(playerId) {
@@ -197,25 +269,10 @@ export async function startGame(
 		},
 		playerMoved(message) {
 			if (disposed) return;
+			if (!isCellWalkable(config.map, message.row, message.column)) return;
 			const entity = playerEntities.get(message.playerId);
 			if (entity === undefined) return;
-			const gridPosition = world.gridPositions.get(entity);
-			const visualPosition = world.visualPositions.get(entity);
-			const animation = world.animations.get(entity);
-			if (!gridPosition || !visualPosition || !animation) return;
-			const target = gridToIsometric(message.column, message.row, TILE_WIDTH, TILE_FOOTPRINT_HEIGHT);
-			world.movingPlayers.add(entity);
-			world.movements.set(entity, {
-				finalStep: message.finalStep, fromColumn: message.fromColumn, fromRow: message.fromRow, progress: 0,
-				startX: visualPosition.x, startY: visualPosition.y,
-				targetColumn: message.column, targetRow: message.row, targetX: target.x, targetY: target.y,
-			});
-			gridPosition.column = message.column;
-			gridPosition.row = message.row;
-			animation.direction = movementDirection(message);
-			animation.state = "walk";
-			animation.frame = 0;
-			delete animation.startedAt;
+			enqueueMovementStep(world, entity, message);
 			ensureAnimationFrame();
 		},
 		start() {

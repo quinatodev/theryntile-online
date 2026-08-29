@@ -4,13 +4,14 @@ import test from "node:test";
 import { isMoveMessage, parseRealtimeMessage } from "./Protocol.js";
 
 test("move accepts integer grid coordinates", () => {
-	assert.equal(isMoveMessage({ type: "MOVE", row: 2, column: 3 }), true);
+	assert.equal(isMoveMessage({ type: "MOVE", row: 0, column: 0 }), true);
+	assert.equal(isMoveMessage({ type: "MOVE", row: 10, column: 10 }), true);
 });
 
 test("move rejects invalid row and column values", () => {
 	assert.equal(isMoveMessage({ type: "MOVE", row: 1.5, column: 2 }), false);
 	assert.equal(isMoveMessage({ type: "MOVE", row: 2, column: -1 }), false);
-	assert.equal(isMoveMessage({ type: "MOVE", row: 2, column: 11 }), false);
+	assert.equal(isMoveMessage({ type: "MOVE", row: Number.MAX_SAFE_INTEGER + 1, column: 0 }), false);
 });
 
 test("channel state accepts valid integer values", () => {
@@ -49,7 +50,7 @@ test("player moved accepts an authoritative adjacent transition", () => {
 for (const message of [
 	{ type: "PLAYER_MOVED", playerId: 0, fromRow: 2, fromColumn: 2, row: 2, column: 3, finalStep: true },
 	{ type: "PLAYER_MOVED", playerId: 1, fromRow: 2, fromColumn: 2, row: 3, column: 3, finalStep: true },
-	{ type: "PLAYER_MOVED", playerId: 1, fromRow: 2, fromColumn: 2, row: 11, column: 2, finalStep: true },
+	{ type: "PLAYER_MOVED", playerId: 1, fromRow: 2, fromColumn: 2, row: -1, column: 2, finalStep: true },
 	{ type: "PLAYER_MOVED", playerId: 1, fromRow: 2, fromColumn: 2, row: 2.5, column: 2, finalStep: true },
 	{ type: "PLAYER_MOVED", playerId: 1, fromRow: 2, fromColumn: 2, row: 2, column: 3, finalStep: "yes" },
 ]) {

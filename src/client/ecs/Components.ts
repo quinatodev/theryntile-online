@@ -63,6 +63,21 @@ export interface MovementComponent {
 	targetY: number;
 }
 
+/**
+ * Lang: pt-BR
+ * Representa um único step autoritativo recebido e ainda não necessariamente iniciado pelo playback visual.
+ *
+ * Lang: en-US
+ * Represents one received authoritative step that visual playback has not necessarily started yet.
+ */
+export interface MovementStep {
+	column: number;
+	finalStep: boolean;
+	fromColumn: number;
+	fromRow: number;
+	row: number;
+}
+
 export interface PointerPosition {
 	canvasX: number;
 	canvasY: number;

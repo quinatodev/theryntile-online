@@ -1,15 +1,14 @@
 import { type GridPosition } from "../ecs/Components.js";
 import { isCellWalkable } from "./Map.js";
+import { type RuntimeMap } from "./Map.js";
 
 /**
  * Lang: pt-BR
- * Limita a cinco steps a rota completa aceita para uma intenção de movimento.
+ * Mantém o pathfinder sem limite para distinguir destino inalcançável de destino além do alcance runtime.
  *
  * Lang: en-US
- * Limits the complete route accepted for one movement intent to five steps.
+ * Keeps pathfinding unbounded to distinguish an unreachable target from one beyond the runtime range.
  */
-export const MAX_MOVEMENT_STEPS = 5;
-
 // Lang: pt-BR
 // A ordem fixa norte, oeste, leste, sul e o índice de inserção tornam os empates determinísticos.
 // Lang: en-US
@@ -31,8 +30,8 @@ const heuristic = (a: GridPosition, b: GridPosition) => Math.abs(a.row - b.row) 
  * Lang: en-US
  * Computes client-side orthogonal A* for UX with Manhattan and deterministic tie-breaking; the server recalculates the route.
  */
-export function findPath(start: GridPosition, target: GridPosition): GridPosition[] | undefined {
-	if (!isCellWalkable(start.row, start.column) || !isCellWalkable(target.row, target.column)) return undefined;
+export function findPath(map: RuntimeMap, start: GridPosition, target: GridPosition): GridPosition[] | undefined {
+	if (!isCellWalkable(map, start.row, start.column) || !isCellWalkable(map, target.row, target.column)) return undefined;
 	if (start.row === target.row && start.column === target.column) return [];
 	const open: Array<{ position: GridPosition; g: number; f: number; sequence: number }> = [
 		{ position: start, g: 0, f: heuristic(start, target), sequence: 0 },
@@ -60,7 +59,7 @@ export function findPath(start: GridPosition, target: GridPosition): GridPositio
 
 		for (const delta of NEIGHBOURS) {
 			const next = { row: current.position.row + delta.row, column: current.position.column + delta.column };
-			if (!isCellWalkable(next.row, next.column)) continue;
+			if (!isCellWalkable(map, next.row, next.column)) continue;
 			const nextCost = current.g + 1;
 			if (nextCost >= (costs.get(keyOf(next)) ?? Number.POSITIVE_INFINITY)) continue;
 			costs.set(keyOf(next), nextCost);
@@ -80,10 +79,12 @@ export function findPath(start: GridPosition, target: GridPosition): GridPositio
  * Lang: en-US
  * Runs bounded BFS to derive once the reachable walkable cells displayed by Walk Hint.
  */
-export function getReachableCells(start: GridPosition, maxSteps = MAX_MOVEMENT_STEPS): GridPosition[] {
+export interface ReachableCell extends GridPosition { distance: number }
+
+export function getReachableCells(map: RuntimeMap, start: GridPosition, maxSteps: number): ReachableCell[] {
 	const queue = [{ position: start, distance: 0 }];
 	const visited = new Set([keyOf(start)]);
-	const reachable: GridPosition[] = [];
+	const reachable: ReachableCell[] = [];
 
 	while (queue.length > 0) {
 		const current = queue.shift();
@@ -91,9 +92,9 @@ export function getReachableCells(start: GridPosition, maxSteps = MAX_MOVEMENT_S
 		for (const delta of NEIGHBOURS) {
 			const next = { row: current.position.row + delta.row, column: current.position.column + delta.column };
 			const key = keyOf(next);
-			if (visited.has(key) || !isCellWalkable(next.row, next.column)) continue;
+			if (visited.has(key) || !isCellWalkable(map, next.row, next.column)) continue;
 			visited.add(key);
-			reachable.push(next);
+			reachable.push({ ...next, distance: current.distance + 1 });
 			queue.push({ position: next, distance: current.distance + 1 });
 		}
 	}
@@ -103,13 +104,13 @@ export function getReachableCells(start: GridPosition, maxSteps = MAX_MOVEMENT_S
 
 /**
  * Lang: pt-BR
- * Aceita para UX somente destinos com rota completa de um a cinco steps, sem truncar paths maiores.
+ * Aceita para UX somente destinos cuja rota completa cabe no limite runtime recebido, sem truncar paths maiores.
  *
  * Lang: en-US
- * Accepts for UX only destinations with a complete one-to-five-step route, without truncating longer paths.
+ * Accepts for UX only destinations whose complete route fits the received runtime limit, without truncating longer paths.
  */
-export const isValidDestination = (start: GridPosition, target: GridPosition): boolean => {
-	const path = findPath(start, target);
+export const isValidDestination = (map: RuntimeMap, start: GridPosition, target: GridPosition, maxSteps: number): boolean => {
+	const path = findPath(map, start, target);
 
-	return path !== undefined && path.length > 0 && path.length <= MAX_MOVEMENT_STEPS;
+	return path !== undefined && path.length > 0 && path.length <= maxSteps;
 };

@@ -42,8 +42,39 @@ try {
 	`);
 
 	await database.query(`
+		ALTER TABLE accounts
+		ADD COLUMN IF NOT EXISTS zoom INTEGER NOT NULL DEFAULT 1
+	`);
+	await database.query("UPDATE accounts SET zoom = 1 WHERE zoom <= 0");
+	await database.query(`
+		DO $$
+		BEGIN
+			IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'accounts_zoom_positive') THEN
+				ALTER TABLE accounts ADD CONSTRAINT accounts_zoom_positive CHECK (zoom > 0);
+			END IF;
+		END
+		$$
+	`);
+
+	await database.query(`
 		ALTER TABLE game_servers
 		ADD COLUMN IF NOT EXISTS capacity INTEGER NOT NULL DEFAULT 100
+	`);
+
+	// Lang: pt-BR
+	// Normaliza bancos existentes antes de instalar a invariante persistente de capacity positiva.
+	// Lang: en-US
+	// Normalizes existing databases before installing the persistent positive-capacity invariant.
+	await database.query("UPDATE game_servers SET capacity = 100 WHERE capacity <= 0");
+	await database.query(`
+		DO $$
+		BEGIN
+			IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'game_servers_capacity_positive') THEN
+				ALTER TABLE game_servers
+				ADD CONSTRAINT game_servers_capacity_positive CHECK (capacity > 0);
+			END IF;
+		END
+		$$
 	`);
 
 	await database.query(`
