@@ -10,6 +10,7 @@ import {
 	type Entity,
 	type GridPosition,
 	type MovementComponent,
+	type MoveTargetComponent,
 	type PlayerComponent,
 	type RenderableComponent,
 	type SpriteComponent,
@@ -21,10 +22,13 @@ export class World {
 	readonly animations = new Map<Entity, AnimationComponent>();
 	readonly entities = new Set<Entity>();
 	readonly gridPositions = new Map<Entity, GridPosition>();
+	readonly hoveredTiles = new Set<Entity>();
 	readonly localPlayers = new Set<Entity>();
 	readonly movements = new Map<Entity, MovementComponent>();
+	readonly moveTargets = new Map<Entity, MoveTargetComponent>();
 	readonly players = new Map<Entity, PlayerComponent>();
 	readonly renderables = new Map<Entity, RenderableComponent>();
+	readonly selectedTiles = new Set<Entity>();
 	readonly sprites = new Map<Entity, SpriteComponent>();
 	readonly tiles = new Map<Entity, TileComponent>();
 	readonly visualPositions = new Map<Entity, VisualPosition>();
@@ -43,10 +47,13 @@ export class World {
 		this.entities.delete(entity);
 		this.animations.delete(entity);
 		this.gridPositions.delete(entity);
+		this.hoveredTiles.delete(entity);
 		this.localPlayers.delete(entity);
 		this.movements.delete(entity);
+		this.moveTargets.delete(entity);
 		this.players.delete(entity);
 		this.renderables.delete(entity);
+		this.selectedTiles.delete(entity);
 		this.sprites.delete(entity);
 		this.tiles.delete(entity);
 		this.visualPositions.delete(entity);

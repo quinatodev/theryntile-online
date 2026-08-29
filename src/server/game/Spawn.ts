@@ -17,19 +17,21 @@ export const LOBBY_COLUMNS = 5;
 
 /**
  * Lang: pt-BR
- * Retorna uma posição desocupada do mapa atual ou undefined quando nenhuma posição está disponível.
+ * Prefere uma posição desocupada e usa qualquer tile válido quando todos estiverem ocupados.
  *
  * Lang: en-US
- * Returns an unoccupied position in the current map or undefined when no position is available.
+ * Prefers an unoccupied position and uses any valid tile when every tile is occupied.
  */
 export function getRandomSpawn(
 	occupiedPositions: readonly SpawnPosition[],
 	random: () => number = Math.random,
-): SpawnPosition | undefined {
+): SpawnPosition {
 	const availablePositions: SpawnPosition[] = [];
+	const allPositions: SpawnPosition[] = [];
 
 	for (let row = 0; row < LOBBY_ROWS; row += 1) {
 		for (let column = 0; column < LOBBY_COLUMNS; column += 1) {
+			allPositions.push({ row, column });
 			const occupied = occupiedPositions.some((position) => position.row === row && position.column === column);
 
 			if (!occupied) {
@@ -38,5 +40,7 @@ export function getRandomSpawn(
 		}
 	}
 
-	return availablePositions[Math.floor(random() * availablePositions.length)];
+	const candidates = availablePositions.length > 0 ? availablePositions : allPositions;
+
+	return candidates[Math.floor(random() * candidates.length)] as SpawnPosition;
 }

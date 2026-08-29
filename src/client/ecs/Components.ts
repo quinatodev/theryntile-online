@@ -24,6 +24,8 @@ export interface SpriteComponent {
 	feetOffsetY: number;
 	frameHeight: number;
 	frameWidth: number;
+	offsetX: number;
+	offsetY: number;
 }
 
 export interface RenderableComponent {
@@ -51,6 +53,16 @@ export interface MovementComponent {
 	targetRow: number;
 	targetX: number;
 	targetY: number;
+}
+
+export interface MoveTargetComponent extends GridPosition {
+	awaitingStep: boolean;
+}
+
+export interface PointerPosition {
+	canvasX: number;
+	canvasY: number;
+	inside: boolean;
 }
 
 export interface PlayerSnapshot {

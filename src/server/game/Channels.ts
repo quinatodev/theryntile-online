@@ -126,15 +126,10 @@ const enterChannel = (socket: ChannelSocket, identity: AuthenticatedPlayer, chan
 	const existingPlayers = channel.players.map(serializePlayer);
 
 	// Lang: pt-BR
-	// Spawn é resolvido antes da mutation para impedir admissão parcial quando não existe posição livre.
+	// Spawn é resolvido antes da mutation; tiles livres são preferidos, mas stacking é um fallback válido.
 	// Lang: en-US
-	// Spawn is resolved before mutation to prevent partial admission when no position is available.
+	// Spawn is resolved before mutation; free tiles are preferred, but stacking is a valid fallback.
 	const spawn = getRandomSpawn(channel.players);
-	if (!spawn) {
-		rejectEntry(socket, "NO_SPAWN_AVAILABLE");
-
-		return;
-	}
 
 	const player: ChannelPlayer = { ...identity, ...spawn, socket };
 
@@ -167,7 +162,7 @@ const movePlayer = (socket: ChannelSocket, row: number, column: number) => {
 	const channel = channels.find(({ members }) => members.has(socket));
 	const player = channel?.players.find((candidate) => candidate.socket === socket);
 
-	if (!channel || !player || !canMoveTo(player, { row, column }, channel.players.filter((candidate) => candidate !== player))) {
+	if (!channel || !player || !canMoveTo(player, { row, column })) {
 		return;
 	}
 

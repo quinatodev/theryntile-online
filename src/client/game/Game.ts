@@ -5,20 +5,24 @@
  * Lang: en-US
  * Orchestrates World, Systems, lifecycle, RAF, input, and authoritative server-event integration.
  */
-import { type Entity, type PlayerSnapshot } from "../ecs/Components.js";
+import { type Entity, type PlayerSnapshot, type PointerPosition } from "../ecs/Components.js";
 import { AnimationSystem } from "../ecs/systems/AnimationSystem.js";
 import { CameraSystem } from "../ecs/systems/CameraSystem.js";
-import { MovementSystem } from "../ecs/systems/MovementSystem.js";
+import { HoverSystem } from "../ecs/systems/HoverSystem.js";
+import { getNextRequestedStep, MovementSystem } from "../ecs/systems/MovementSystem.js";
 import { RenderSystem } from "../ecs/systems/RenderSystem.js";
+import { SelectSystem } from "../ecs/systems/SelectSystem.js";
 import { World } from "../ecs/World.js";
 import { changeCameraZoom, type Camera } from "../engine/Camera.js";
 import { resizeCanvasToViewport } from "../engine/Canvas.js";
-import { gridToIsometric, worldToGrid } from "../engine/Isometric.js";
+import { gridToIsometric } from "../engine/Isometric.js";
 
 const TILE_WIDTH = 32;
 const TILE_FOOTPRINT_HEIGHT = 16;
 const PLAYER_FRAME_WIDTH = 32;
 const PLAYER_FRAME_HEIGHT = 48;
+const PLAYER_SPRITE_OFFSET_X = 0;
+const PLAYER_SPRITE_OFFSET_Y = 0;
 const MAP_ROWS = 5;
 const MAP_COLUMNS = 5;
 
@@ -63,8 +67,14 @@ const addPlayerEntity = (world: World, player: PlayerSnapshot, local: boolean): 
 	world.animations.set(entity, { direction: "left_down", frame: 0, state: "idle" });
 	world.gridPositions.set(entity, { column: player.column, row: player.row });
 	world.players.set(entity, { id: player.id, name: player.name });
-	world.renderables.set(entity, { layer: 1, order: player.id });
-	world.sprites.set(entity, { feetOffsetY: TILE_FOOTPRINT_HEIGHT, frameHeight: PLAYER_FRAME_HEIGHT, frameWidth: PLAYER_FRAME_WIDTH });
+	world.renderables.set(entity, { layer: 2, order: player.id });
+	world.sprites.set(entity, {
+		feetOffsetY: TILE_FOOTPRINT_HEIGHT,
+		frameHeight: PLAYER_FRAME_HEIGHT,
+		frameWidth: PLAYER_FRAME_WIDTH,
+		offsetX: PLAYER_SPRITE_OFFSET_X,
+		offsetY: PLAYER_SPRITE_OFFSET_Y,
+	});
 	world.visualPositions.set(entity, visualPosition);
 	if (local) world.localPlayers.add(entity);
 
@@ -85,6 +95,8 @@ export async function startGame(
 	const movementSystem = new MovementSystem();
 	const animationSystem = new AnimationSystem();
 	const cameraSystem = new CameraSystem();
+	const hoverSystem = new HoverSystem();
+	const selectSystem = new SelectSystem();
 	const renderSystem = await RenderSystem.create(surface);
 	const playerEntities = new Map<number, Entity>();
 	addTileEntities(world);
@@ -98,12 +110,31 @@ export async function startGame(
 	let animationFrame: number | null = null;
 	let disposed = false;
 	let started = false;
+	const pointer: PointerPosition = { canvasX: 0, canvasY: 0, inside: false };
 
 	const render = () => { if (started && !disposed) renderSystem.render(world, camera); };
+	const requestNextMove = () => {
+		const moveTarget = world.moveTargets.get(localPlayerEntity);
+		const gridPosition = world.gridPositions.get(localPlayerEntity);
+
+		if (!moveTarget || !gridPosition) return;
+		if (gridPosition.row === moveTarget.row && gridPosition.column === moveTarget.column) {
+			world.moveTargets.delete(localPlayerEntity);
+
+			return;
+		}
+		const nextStep = getNextRequestedStep(gridPosition, moveTarget, world.movements.has(localPlayerEntity));
+
+		if (!nextStep) return;
+
+		if (requestMove(nextStep.row, nextStep.column)) moveTarget.awaitingStep = true;
+	};
 	const frame = (timestamp: number) => {
 		animationFrame = null;
 		if (!started || disposed) return;
+		hoverSystem.update(world, camera, canvas.width, canvas.height, pointer);
 		movementSystem.update(world, timestamp);
+		requestNextMove();
 		animationSystem.update(world, timestamp);
 		cameraSystem.update(world, camera);
 		renderSystem.render(world, camera);
@@ -114,15 +145,24 @@ export async function startGame(
 	};
 	const resizeAndRender = () => { resizeCanvasToViewport(surface); render(); };
 	const zoomAndRender = (event: WheelEvent) => { event.preventDefault(); changeCameraZoom(camera, event.deltaY); render(); };
-	const requestClickedTile = (event: MouseEvent) => {
-		if (world.movements.has(localPlayerEntity)) return;
+	const updatePointer = (event: PointerEvent | MouseEvent) => {
 		const bounds = canvas.getBoundingClientRect();
-		const canvasX = (event.clientX - bounds.left) * canvas.width / bounds.width;
-		const canvasY = (event.clientY - bounds.top) * canvas.height / bounds.height;
-		const worldX = (canvasX - canvas.width / 2) / camera.zoom + camera.x;
-		const worldY = (canvasY - canvas.height / 2) / camera.zoom + camera.y;
-		const target = worldToGrid(worldX, worldY, TILE_WIDTH, TILE_FOOTPRINT_HEIGHT);
-		if (target) requestMove(target.row, target.column);
+		pointer.canvasX = (event.clientX - bounds.left) * canvas.width / bounds.width;
+		pointer.canvasY = (event.clientY - bounds.top) * canvas.height / bounds.height;
+		pointer.inside = true;
+	};
+	const leaveCanvas = () => { pointer.inside = false; world.hoveredTiles.clear(); render(); };
+	const selectClickedTile = (event: MouseEvent) => {
+		updatePointer(event);
+		const hoveredEntity = hoverSystem.update(world, camera, canvas.width, canvas.height, pointer);
+		const selectedEntity = selectSystem.select(world, hoveredEntity);
+		if (selectedEntity === undefined) return;
+		const target = world.gridPositions.get(selectedEntity);
+		if (!target) return;
+		const awaitingStep = world.moveTargets.get(localPlayerEntity)?.awaitingStep ?? false;
+		world.moveTargets.set(localPlayerEntity, { ...target, awaitingStep });
+		requestNextMove();
+		render();
 	};
 
 	return {
@@ -131,7 +171,9 @@ export async function startGame(
 			disposed = true;
 			window.removeEventListener("resize", resizeAndRender);
 			canvas.removeEventListener("wheel", zoomAndRender);
-			canvas.removeEventListener("click", requestClickedTile);
+			canvas.removeEventListener("pointermove", updatePointer);
+			canvas.removeEventListener("pointerleave", leaveCanvas);
+			canvas.removeEventListener("click", selectClickedTile);
 			if (animationFrame !== null) window.cancelAnimationFrame(animationFrame);
 			animationFrame = null;
 			playerEntities.clear();
@@ -160,6 +202,10 @@ export async function startGame(
 			const visualPosition = world.visualPositions.get(entity);
 			const animation = world.animations.get(entity);
 			if (!gridPosition || !visualPosition || !animation) return;
+			if (entity === localPlayerEntity) {
+				const moveTarget = world.moveTargets.get(entity);
+				if (moveTarget) moveTarget.awaitingStep = false;
+			}
 			const target = gridToIsometric(message.column, message.row, TILE_WIDTH, TILE_FOOTPRINT_HEIGHT);
 			world.movements.set(entity, {
 				fromColumn: message.fromColumn, fromRow: message.fromRow, progress: 0,
@@ -179,7 +225,9 @@ export async function startGame(
 			started = true;
 			window.addEventListener("resize", resizeAndRender);
 			canvas.addEventListener("wheel", zoomAndRender, { passive: false });
-			canvas.addEventListener("click", requestClickedTile);
+			canvas.addEventListener("pointermove", updatePointer);
+			canvas.addEventListener("pointerleave", leaveCanvas);
+			canvas.addEventListener("click", selectClickedTile);
 			resizeAndRender();
 			ensureAnimationFrame();
 		},

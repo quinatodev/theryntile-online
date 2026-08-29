@@ -7,13 +7,20 @@
  */
 import { type Camera } from "../../engine/Camera.js";
 import { type CanvasSurface } from "../../engine/Canvas.js";
-import { gridToIsometric } from "../../engine/Isometric.js";
-import { type Entity, type GridPosition, type MovementComponent } from "../Components.js";
+import { gridToIsometric, TILE_VISUAL_GROUND_OFFSET_Y } from "../../engine/Isometric.js";
+import { type Entity, type GridPosition, type MovementComponent, type SpriteComponent } from "../Components.js";
 import { type World } from "../World.js";
 import { ANIMATION_FRAME_COUNT } from "./AnimationSystem.js";
 
 const TILE_WIDTH = 32;
 const TILE_FOOTPRINT_HEIGHT = 16;
+const HIGHLIGHT_INSET_X = 2;
+const HIGHLIGHT_INSET_Y = 1;
+
+export interface Point {
+	x: number;
+	y: number;
+}
 
 export interface RenderOrder extends GridPosition {
 	depth: number;
@@ -31,7 +38,13 @@ interface TileDrawable extends RenderOrder {
 	kind: "tile";
 }
 
-type Drawable = PlayerDrawable | TileDrawable;
+interface HighlightDrawable extends RenderOrder {
+	entity: Entity;
+	kind: "highlight";
+	state: "hovered" | "selected";
+}
+
+type Drawable = HighlightDrawable | PlayerDrawable | TileDrawable;
 
 export const compareRenderOrder = (a: RenderOrder, b: RenderOrder): number => a.depth - b.depth
 	|| a.row - b.row
@@ -45,6 +58,35 @@ export const getMovementSortingGrid = (
 ): GridPosition => movement && movement.progress < 0.5
 	? { column: movement.fromColumn, row: movement.fromRow }
 	: gridPosition;
+
+export const getHighlightRenderOrder = (gridPosition: GridPosition): RenderOrder => ({
+	...gridPosition,
+	depth: gridPosition.row + gridPosition.column,
+	layer: 0,
+	order: 1,
+});
+
+export const applySpriteOffset = (basePosition: Point, sprite: Pick<SpriteComponent, "offsetX" | "offsetY">): Point => ({
+	x: basePosition.x + sprite.offsetX,
+	y: basePosition.y + sprite.offsetY,
+});
+
+export const getTileHighlightState = (selected: boolean, hovered: boolean): "hovered" | "selected" | undefined => selected
+	? "selected"
+	: hovered ? "hovered" : undefined;
+
+export const getHighlightDiamond = (worldPosition: Point): [Point, Point, Point, Point] => {
+	const centerY = worldPosition.y + TILE_VISUAL_GROUND_OFFSET_Y + TILE_FOOTPRINT_HEIGHT / 2;
+	const halfWidth = TILE_WIDTH / 2 - HIGHLIGHT_INSET_X;
+	const halfHeight = TILE_FOOTPRINT_HEIGHT / 2 - HIGHLIGHT_INSET_Y;
+
+	return [
+		{ x: worldPosition.x, y: centerY - halfHeight },
+		{ x: worldPosition.x + halfWidth, y: centerY },
+		{ x: worldPosition.x, y: centerY + halfHeight },
+		{ x: worldPosition.x - halfWidth, y: centerY },
+	];
+};
 
 const loadImage = (path: string): Promise<HTMLImageElement> => new Promise((resolve, reject) => {
 	const image = new Image();
@@ -90,6 +132,17 @@ export class RenderSystem {
 				entity,
 				kind: "tile",
 			});
+
+			const selected = world.selectedTiles.has(entity);
+			const highlightState = getTileHighlightState(selected, world.hoveredTiles.has(entity));
+			if (highlightState) {
+				drawables.push({
+					...getHighlightRenderOrder(gridPosition),
+					entity,
+					kind: "highlight",
+					state: highlightState,
+				});
+			}
 		}
 
 		for (const [entity] of world.players) {
@@ -127,6 +180,25 @@ export class RenderSystem {
 				continue;
 			}
 
+			if (drawable.kind === "highlight") {
+				const worldPosition = gridToIsometric(drawable.column, drawable.row, TILE_WIDTH, TILE_FOOTPRINT_HEIGHT);
+				const [top, right, bottom, left] = getHighlightDiamond(worldPosition).map(({ x, y }) => toScreen(x, y));
+				context.save();
+				context.beginPath();
+				context.moveTo(top.x, top.y);
+				context.lineTo(right.x, right.y);
+				context.lineTo(bottom.x, bottom.y);
+				context.lineTo(left.x, left.y);
+				context.closePath();
+				context.fillStyle = drawable.state === "selected" ? "rgba(255, 190, 40, 0.30)" : "rgba(64, 220, 255, 0.22)";
+				context.strokeStyle = drawable.state === "selected" ? "#ffd15a" : "#7ae8ff";
+				context.lineWidth = Math.max(1.5, camera.zoom * 1.5);
+				context.fill();
+				context.stroke();
+				context.restore();
+				continue;
+			}
+
 			const visualPosition = world.visualPositions.get(drawable.entity);
 			const sprite = world.sprites.get(drawable.entity);
 			const animation = world.animations.get(drawable.entity);
@@ -137,14 +209,19 @@ export class RenderSystem {
 			if (!texture) continue;
 			const feet = toScreen(visualPosition.x, visualPosition.y + sprite.feetOffsetY);
 			const frame = animation.frame % ANIMATION_FRAME_COUNT;
+			const drawPosition = applySpriteOffset({
+				x: feet.x - sprite.frameWidth * camera.zoom / 2,
+				y: feet.y - sprite.frameHeight * camera.zoom,
+			}, sprite);
+
 			context.drawImage(
 				texture,
 				frame * sprite.frameWidth,
 				0,
 				sprite.frameWidth,
 				sprite.frameHeight,
-				Math.round(feet.x - sprite.frameWidth * camera.zoom / 2),
-				Math.round(feet.y - sprite.frameHeight * camera.zoom),
+				Math.round(drawPosition.x),
+				Math.round(drawPosition.y),
 				sprite.frameWidth * camera.zoom,
 				sprite.frameHeight * camera.zoom,
 			);

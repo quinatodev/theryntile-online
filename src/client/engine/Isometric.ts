@@ -15,6 +15,9 @@ export interface GridPosition {
 	column: number;
 }
 
+/** Vertical distance from the texture origin to the Tile's visual ground footprint. */
+export const TILE_VISUAL_GROUND_OFFSET_Y = 8;
+
 /**
  * Lang: pt-BR
  * Projeta uma posição discreta do grid no plano isométrico usando as dimensões do tile.

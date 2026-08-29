@@ -18,6 +18,7 @@ test("getRandomSpawn returns the only available position", () => {
 	assert.deepEqual(getRandomSpawn(occupied, () => 0.75), { row: 4, column: 3 });
 });
 
-test("getRandomSpawn returns undefined when every position is occupied", () => {
-	assert.equal(getRandomSpawn(allPositions()), undefined);
+test("getRandomSpawn returns a valid fallback when every position is occupied", () => {
+	assert.deepEqual(getRandomSpawn(allPositions(), () => 0), { row: 0, column: 0 });
+	assert.deepEqual(getRandomSpawn(allPositions(), () => 0.999), { row: 4, column: 4 });
 });

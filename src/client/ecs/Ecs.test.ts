@@ -76,7 +76,7 @@ test("CameraSystem follows the Local Player VisualPosition feet", () => {
 	const local = world.createEntity();
 	world.visualPositions.set(remote, { x: 100, y: 100 });
 	world.visualPositions.set(local, { x: 12, y: 20 });
-	world.sprites.set(local, { feetOffsetY: 16, frameHeight: 48, frameWidth: 32 });
+	world.sprites.set(local, { feetOffsetY: 16, frameHeight: 48, frameWidth: 32, offsetX: 30, offsetY: -20 });
 	world.localPlayers.add(local);
 	const camera = { x: 0, y: 0, zoom: 1 };
 	new CameraSystem().update(world, camera);
