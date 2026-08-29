@@ -1,230 +1,181 @@
 /**
  * Lang: pt-BR
- * Possui o runtime visual preparado e interpola eventos autoritativos de movimento recebidos do server.
- * Input envia apenas intenção; Game não decide membership nem posição lógica final.
+ * Orquestra World, Systems, lifecycle, RAF, input e integração dos eventos autoritativos do server.
  *
  * Lang: en-US
- * Owns the prepared visual runtime and interpolates authoritative movement events received from the server.
- * Input sends only intent; Game does not decide membership or final logical position.
+ * Orchestrates World, Systems, lifecycle, RAF, input, and authoritative server-event integration.
  */
+import { type Entity, type PlayerSnapshot } from "../ecs/Components.js";
+import { AnimationSystem } from "../ecs/systems/AnimationSystem.js";
+import { CameraSystem } from "../ecs/systems/CameraSystem.js";
+import { MovementSystem } from "../ecs/systems/MovementSystem.js";
+import { RenderSystem } from "../ecs/systems/RenderSystem.js";
+import { World } from "../ecs/World.js";
 import { changeCameraZoom, type Camera } from "../engine/Camera.js";
 import { resizeCanvasToViewport } from "../engine/Canvas.js";
 import { gridToIsometric, worldToGrid } from "../engine/Isometric.js";
-import { createLobbyRenderer } from "./Lobby.js";
-import { type Player, type PlayerDirection, type VisualPlayer } from "./Player.js";
 
 const TILE_WIDTH = 32;
 const TILE_FOOTPRINT_HEIGHT = 16;
-const MOVE_DURATION_MS = 500;
-const IDLE_FRAMES_PER_SECOND = 8;
-const IDLE_FRAME_COUNT = 8;
-const WALK_FRAMES_PER_SECOND = 16;
-const WALK_FRAME_COUNT = 8;
-const DEFAULT_DIRECTION: PlayerDirection = "left_down";
+const PLAYER_FRAME_WIDTH = 32;
+const PLAYER_FRAME_HEIGHT = 48;
+const MAP_ROWS = 5;
+const MAP_COLUMNS = 5;
 
 export interface PlayerMoved {
-	playerId: number;
-	fromRow: number;
-	fromColumn: number;
-	row: number;
 	column: number;
+	fromColumn: number;
+	fromRow: number;
+	playerId: number;
+	row: number;
 }
 
 export interface Game {
 	dispose(): void;
-	playerJoined(player: Player): void;
+	playerJoined(player: PlayerSnapshot): void;
 	playerLeft(playerId: number): void;
 	playerMoved(message: PlayerMoved): void;
 	start(): void;
 }
 
-const movementDirection = ({ fromRow, fromColumn, row, column }: PlayerMoved): PlayerDirection => {
-	if (column > fromColumn) return "right_down";
-	if (column < fromColumn) return "left_top";
-	if (row > fromRow) return "left_down";
+const movementDirection = ({ column, fromColumn, fromRow, row }: PlayerMoved) => {
+	if (column > fromColumn) return "right_down" as const;
+	if (column < fromColumn) return "left_top" as const;
+	if (row > fromRow) return "left_down" as const;
 
-	return "right_top";
+	return "right_top" as const;
 };
 
-const createVisualPlayer = (player: Player): VisualPlayer => {
-	const world = gridToIsometric(player.column, player.row, TILE_WIDTH, TILE_FOOTPRINT_HEIGHT);
-
-	return { ...player, visualX: world.x, visualY: world.y, direction: DEFAULT_DIRECTION, animation: "idle", frame: 0 };
+const addTileEntities = (world: World): void => {
+	for (let row = 0; row < MAP_ROWS; row += 1) {
+		for (let column = 0; column < MAP_COLUMNS; column += 1) {
+			const entity = world.createEntity();
+			world.gridPositions.set(entity, { column, row });
+			world.renderables.set(entity, { layer: 0, order: 0 });
+			world.tiles.set(entity, { textureId: 1 });
+		}
+	}
 };
 
-/**
- * Lang: pt-BR
- * Prepara assets e estado interno sem registrar listeners, RAF ou renderizar.
- * O chamador valida a geração de Loading antes de start() ativar efeitos.
- *
- * Lang: en-US
- * Prepares assets and internal state without registering listeners, RAF, or rendering.
- * The caller validates the Loading generation before start() activates effects.
- */
+const addPlayerEntity = (world: World, player: PlayerSnapshot, local: boolean): Entity => {
+	const entity = world.createEntity();
+	const visualPosition = gridToIsometric(player.column, player.row, TILE_WIDTH, TILE_FOOTPRINT_HEIGHT);
+	world.animations.set(entity, { direction: "left_down", frame: 0, state: "idle" });
+	world.gridPositions.set(entity, { column: player.column, row: player.row });
+	world.players.set(entity, { id: player.id, name: player.name });
+	world.renderables.set(entity, { layer: 1, order: player.id });
+	world.sprites.set(entity, { feetOffsetY: TILE_FOOTPRINT_HEIGHT, frameHeight: PLAYER_FRAME_HEIGHT, frameWidth: PLAYER_FRAME_WIDTH });
+	world.visualPositions.set(entity, visualPosition);
+	if (local) world.localPlayers.add(entity);
+
+	return entity;
+};
+
 export async function startGame(
 	canvas: HTMLCanvasElement,
-	localPlayer: Player,
-	initialRemotePlayers: readonly Player[],
+	localPlayer: PlayerSnapshot,
+	initialRemotePlayers: readonly PlayerSnapshot[],
 	requestMove: (row: number, column: number) => boolean,
 ): Promise<Game> {
 	const context = canvas.getContext("2d");
-
 	if (!context) throw new Error("Canvas 2D is not available.");
 
 	const surface = { element: canvas, context };
-	const lobby = await createLobbyRenderer(surface);
-	const localVisualPlayer = createVisualPlayer(localPlayer);
-	const camera: Camera = {
-		x: localVisualPlayer.visualX,
-		y: localVisualPlayer.visualY + TILE_FOOTPRINT_HEIGHT,
-		zoom: 1,
-	};
-	const players = new Map<number, VisualPlayer>([[localPlayer.id, localVisualPlayer]]);
+	const world = new World();
+	const movementSystem = new MovementSystem();
+	const animationSystem = new AnimationSystem();
+	const cameraSystem = new CameraSystem();
+	const renderSystem = await RenderSystem.create(surface);
+	const playerEntities = new Map<number, Entity>();
+	addTileEntities(world);
+	const localPlayerEntity = addPlayerEntity(world, localPlayer, true);
+	playerEntities.set(localPlayer.id, localPlayerEntity);
+	for (const player of initialRemotePlayers) playerEntities.set(player.id, addPlayerEntity(world, player, false));
 
+	const localVisualPosition = world.visualPositions.get(localPlayerEntity);
+	if (!localVisualPosition) throw new Error("Local Player visual position is not available.");
+	const camera: Camera = { x: localVisualPosition.x, y: localVisualPosition.y + TILE_FOOTPRINT_HEIGHT, zoom: 1 };
 	let animationFrame: number | null = null;
 	let disposed = false;
 	let started = false;
 
-	for (const player of initialRemotePlayers) players.set(player.id, createVisualPlayer(player));
-
-	const render = () => {
-		if (started && !disposed) lobby.render([...players.values()], camera);
-	};
-
-	/**
-	 * Lang: pt-BR
-	 * Atualiza animações, interpolações e câmera em um único RAF contínuo.
-	 *
-	 * Lang: en-US
-	 * Updates animations, interpolations, and the camera in one continuous RAF.
-	 */
-	const updateMovements = (timestamp: number) => {
+	const render = () => { if (started && !disposed) renderSystem.render(world, camera); };
+	const frame = (timestamp: number) => {
 		animationFrame = null;
-
-		for (const player of players.values()) {
-			const movement = player.movement;
-
-			player.animationStartedAt ??= timestamp;
-
-			if (!movement) {
-				const elapsed = Math.max(0, timestamp - player.animationStartedAt);
-				player.frame = Math.floor(elapsed * IDLE_FRAMES_PER_SECOND / 1_000) % IDLE_FRAME_COUNT;
-				continue;
-			}
-
-			// Lang: pt-BR
-			// O primeiro timestamp do próprio RAF estabelece a única base temporal da interpolação e dos frames.
-			// Lang: en-US
-			// The first RAF timestamp establishes the single time base for interpolation and animation frames.
-			movement.startedAt ??= timestamp;
-			const elapsed = Math.max(0, timestamp - movement.startedAt);
-			const progress = Math.min(1, elapsed / MOVE_DURATION_MS);
-			movement.progress = progress;
-
-			player.visualX = movement.startX + (movement.targetX - movement.startX) * progress;
-			player.visualY = movement.startY + (movement.targetY - movement.startY) * progress;
-			player.frame = Math.floor(elapsed * WALK_FRAMES_PER_SECOND / 1_000) % WALK_FRAME_COUNT;
-
-			if (player.id === localPlayer.id) {
-				camera.x = player.visualX;
-				camera.y = player.visualY + TILE_FOOTPRINT_HEIGHT;
-			}
-
-			if (progress >= 1) {
-				player.animation = "idle";
-				player.animationStartedAt = timestamp;
-				player.frame = 0;
-				delete player.movement;
-			}
-		}
-
-		render();
-
-		if (started && !disposed) animationFrame = window.requestAnimationFrame(updateMovements);
+		if (!started || disposed) return;
+		movementSystem.update(world, timestamp);
+		animationSystem.update(world, timestamp);
+		cameraSystem.update(world, camera);
+		renderSystem.render(world, camera);
+		animationFrame = window.requestAnimationFrame(frame);
 	};
-
 	const ensureAnimationFrame = () => {
-		if (started && !disposed && animationFrame === null) {
-			animationFrame = window.requestAnimationFrame(updateMovements);
-		}
+		if (started && !disposed && animationFrame === null) animationFrame = window.requestAnimationFrame(frame);
 	};
-
 	const resizeAndRender = () => { resizeCanvasToViewport(surface); render(); };
 	const zoomAndRender = (event: WheelEvent) => { event.preventDefault(); changeCameraZoom(camera, event.deltaY); render(); };
-
-	/**
-	 * Lang: pt-BR
-	 * Converte screen -> world -> grid com Camera/zoom atuais e envia um destino enquanto o local está parado.
-	 *
-	 * Lang: en-US
-	 * Converts screen -> world -> grid using current Camera/zoom and sends a destination while the local player is idle.
-	 */
 	const requestClickedTile = (event: MouseEvent) => {
-		if (localVisualPlayer.movement) return;
-
+		if (world.movements.has(localPlayerEntity)) return;
 		const bounds = canvas.getBoundingClientRect();
 		const canvasX = (event.clientX - bounds.left) * canvas.width / bounds.width;
 		const canvasY = (event.clientY - bounds.top) * canvas.height / bounds.height;
 		const worldX = (canvasX - canvas.width / 2) / camera.zoom + camera.x;
 		const worldY = (canvasY - canvas.height / 2) / camera.zoom + camera.y;
 		const target = worldToGrid(worldX, worldY, TILE_WIDTH, TILE_FOOTPRINT_HEIGHT);
-
 		if (target) requestMove(target.row, target.column);
 	};
 
 	return {
 		dispose() {
 			if (disposed) return;
-
 			disposed = true;
 			window.removeEventListener("resize", resizeAndRender);
 			canvas.removeEventListener("wheel", zoomAndRender);
 			canvas.removeEventListener("click", requestClickedTile);
-
 			if (animationFrame !== null) window.cancelAnimationFrame(animationFrame);
-
 			animationFrame = null;
-			players.clear();
+			playerEntities.clear();
+			world.clear();
 		},
 		playerJoined(player) {
-			if (!disposed) {
-				players.set(player.id, createVisualPlayer(player));
-				render();
-			}
+			if (disposed) return;
+			const previousEntity = playerEntities.get(player.id);
+			if (previousEntity !== undefined) world.removeEntity(previousEntity);
+			playerEntities.set(player.id, addPlayerEntity(world, player, false));
+			render();
 		},
 		playerLeft(playerId) {
-			if (!disposed && playerId !== localPlayer.id && players.delete(playerId)) render();
+			if (disposed || playerId === localPlayer.id) return;
+			const entity = playerEntities.get(playerId);
+			if (entity === undefined) return;
+			playerEntities.delete(playerId);
+			world.removeEntity(entity);
+			render();
 		},
 		playerMoved(message) {
-			const player = players.get(message.playerId);
-
-			if (!player || disposed) return;
-
+			if (disposed) return;
+			const entity = playerEntities.get(message.playerId);
+			if (entity === undefined) return;
+			const gridPosition = world.gridPositions.get(entity);
+			const visualPosition = world.visualPositions.get(entity);
+			const animation = world.animations.get(entity);
+			if (!gridPosition || !visualPosition || !animation) return;
 			const target = gridToIsometric(message.column, message.row, TILE_WIDTH, TILE_FOOTPRINT_HEIGHT);
-
-			// Lang: pt-BR
-			// Um evento novo parte da posição visual corrente para evitar teleport em eventos sobrepostos.
-			// Lang: en-US
-			// A new event starts at the current visual position to avoid teleporting on overlapping events.
-			player.movement = {
-				...message,
-				startX: player.visualX,
-				startY: player.visualY,
-				targetX: target.x,
-				targetY: target.y,
-				progress: 0,
-			};
-			player.row = message.row;
-			player.column = message.column;
-			player.direction = movementDirection(message);
-			player.animation = "walk";
-			delete player.animationStartedAt;
-			player.frame = 0;
+			world.movements.set(entity, {
+				fromColumn: message.fromColumn, fromRow: message.fromRow, progress: 0,
+				startX: visualPosition.x, startY: visualPosition.y,
+				targetColumn: message.column, targetRow: message.row, targetX: target.x, targetY: target.y,
+			});
+			gridPosition.column = message.column;
+			gridPosition.row = message.row;
+			animation.direction = movementDirection(message);
+			animation.state = "walk";
+			animation.frame = 0;
+			delete animation.startedAt;
 			ensureAnimationFrame();
 		},
 		start() {
 			if (disposed || started) return;
-
 			started = true;
 			window.addEventListener("resize", resizeAndRender);
 			canvas.addEventListener("wheel", zoomAndRender, { passive: false });
