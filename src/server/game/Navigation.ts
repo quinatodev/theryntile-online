@@ -10,10 +10,12 @@ import { GAME_CONFIG } from "./GameConfig.js";
  * Limits the complete authoritative route accepted from one client intent to the configured global maximum.
  */
 export const MAX_MOVEMENT_STEPS = GAME_CONFIG.movement.maxSteps;
+
 const NEIGHBOURS = [
 	{ column: 0, row: -1 }, { column: -1, row: 0 },
 	{ column: 1, row: 0 }, { column: 0, row: 1 },
 ] as const;
+
 const keyOf = ({ row, column }: SpawnPosition) => `${row}:${column}`;
 const heuristic = (a: SpawnPosition, b: SpawnPosition) => Math.abs(a.row - b.row) + Math.abs(a.column - b.column);
 
@@ -72,8 +74,10 @@ export function findPath(start: SpawnPosition, target: SpawnPosition, map: MapDe
  * Lang: en-US
  * Authorizes only a complete A* route within the configured maximum; longer paths are never truncated.
  */
-export const getAuthorizedPath = (start: SpawnPosition, target: SpawnPosition): SpawnPosition[] | undefined => {
-	const path = findPath(start, target);
+export const getAuthorizedPath = (
+	start: SpawnPosition, target: SpawnPosition, map: MapDefinition = INITIAL_MAP,
+): SpawnPosition[] | undefined => {
+	const path = findPath(start, target, map);
 
 	return path && path.length > 0 && path.length <= MAX_MOVEMENT_STEPS ? path : undefined;
 };

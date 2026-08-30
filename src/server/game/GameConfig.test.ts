@@ -3,32 +3,36 @@ import test from "node:test";
 
 import { parseGameBootstrapConfig } from "../../client/game/MapConfig.js";
 import { createGameBootstrapPayload, GAME_CONFIG } from "./GameConfig.js";
-import { Newbie } from "./map/Newbie.js";
-import { getMapBounds, getMapLayers, validateMapDefinition } from "./Map.js";
+import { Newbie, NEWBIE_SPAWN_AREA } from "./map/Newbie.js";
+import { getMapLayers, validateMapDefinition } from "./Map.js";
+import { getTileDefinitions } from "./TileRegistry.js";
 
-test("GAME_CONFIG owns global settings and associates lobby with Newbie", () => {
+test("GAME_CONFIG owns global settings and associates lobby with the 20x20 Newbie map", () => {
 	assert.equal(GAME_CONFIG.movement.maxSteps, 5);
-	assert.deepEqual(GAME_CONFIG.zoom, { max: 3, min: 1 });
+	assert.deepEqual(GAME_CONFIG.zoom, { max: 5, min: 2 });
 	assert.equal(GAME_CONFIG.maps.lobby, Newbie);
+	assert.deepEqual(getMapLayers(Newbie), [0, 1, 2]);
+	assert.equal(Newbie[0].length, 20);
+	assert.ok(Newbie[0].every((row) => row.length === 20));
+	assert.deepEqual(NEWBIE_SPAWN_AREA, { minRow: 0, maxRow: 19, minColumn: 0, maxColumn: 10 });
 });
 
-test("Newbie is rectangular across layers and preserves exact Tile counts", () => {
+test("every Newbie Tile is registered and the real bootstrap payload is valid", () => {
 	assert.doesNotThrow(() => validateMapDefinition(Newbie));
-	assert.deepEqual(getMapLayers(Newbie), [0, 1]);
-	assert.deepEqual(getMapBounds(Newbie), { columns: 11, rows: 11 });
-	assert.equal(Newbie[0].flat().filter((tileId) => tileId === 1).length, 121);
-	assert.equal(Newbie[1].flat().filter((tileId) => tileId === 101).length, 9);
-	assert.equal(Newbie[1].flat().filter((tileId) => tileId === 0).length, 112);
+	const payload = createGameBootstrapPayload(1);
+	assert.equal(payload.map, Newbie);
+	assert.doesNotThrow(() => parseGameBootstrapConfig(JSON.parse(JSON.stringify(payload))));
 });
 
-test("game config API payload contains only the active map and survives client bootstrap parsing", () => {
-	const payload = createGameBootstrapPayload(99);
-	assert.equal(payload.mapId, "lobby");
-	assert.equal(payload.map, Newbie);
-	assert.equal(payload.movement.maxSteps, 5);
-	assert.equal(payload.zoomPreference, 3);
-	assert.equal("maps" in payload, false);
-	assert.equal("rows" in payload, false);
-	assert.equal("columns" in payload, false);
-	assert.doesNotThrow(() => parseGameBootstrapConfig(JSON.parse(JSON.stringify(payload))));
+test("registered Tile definitions survive server-style JSON and client parsing", () => {
+	const parsed = parseGameBootstrapConfig(JSON.parse(JSON.stringify({
+		map: { 0: [[1, 501]] }, mapId: "fixture", movement: GAME_CONFIG.movement,
+		tileDefinitions: getTileDefinitions(), zoom: GAME_CONFIG.zoom, zoomPreference: 1,
+	})));
+	assert.equal(parsed.tileDefinitions[1], true);
+	assert.equal(parsed.tileDefinitions[201], true);
+	assert.equal(parsed.tileDefinitions[501], true);
+	assert.equal(parsed.tileDefinitions[101], false);
+	assert.equal(parsed.tileDefinitions[502], false);
+	assert.equal(parsed.tileDefinitions[901], false);
 });

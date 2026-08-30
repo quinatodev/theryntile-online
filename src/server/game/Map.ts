@@ -1,7 +1,8 @@
-import { GAME_CONFIG, INITIAL_MAP_ID } from "./GameConfig.js";
+import { Newbie } from "./map/Newbie.js";
+import { isTileWalkable } from "./TileRegistry.js";
 
 export type MapDefinition = Readonly<Record<number, readonly (readonly number[])[]>>;
-export const INITIAL_MAP: MapDefinition = GAME_CONFIG.maps[INITIAL_MAP_ID];
+export const INITIAL_MAP: MapDefinition = Newbie;
 
 /** Lang: pt-BR
  * Deriva as layers numéricas ordenadas da definição, sem metadata global duplicada.
@@ -33,6 +34,7 @@ export function validateMapDefinition(map: MapDefinition): void {
 			columns ??= row.length;
 			if (row.length !== columns) throw new Error("Every map row must have the same column count.");
 			if (row.some((tileId) => !Number.isSafeInteger(tileId) || tileId < 0)) throw new Error("Every Tile ID must be a non-negative safe integer.");
+			for (const tileId of row) if (tileId !== 0) isTileWalkable(tileId);
 		}
 	}
 }
@@ -58,8 +60,6 @@ export const getMapBounds = (map: MapDefinition): { columns: number; rows: numbe
  * Lang: en-US
  * Centralizes the minimal authoritative terrain rule: ID 1 is walkable.
  */
-export const isTileWalkable = (tileId: number): boolean => tileId === 1;
-
 /**
  * Lang: pt-BR
  * Avalia bounds e walkability em todas as layers do mapa informado.
@@ -70,12 +70,10 @@ export const isTileWalkable = (tileId: number): boolean => tileId === 1;
 export const isCellWalkable = (map: MapDefinition, row: number, column: number): boolean => {
 	const { rows, columns } = getMapBounds(map);
 
-	return row >= 0 && row < rows && column >= 0 && column < columns
-		&& getMapLayers(map).every((layer) => {
-			const tileId = map[layer]?.[row]?.[column] ?? 0;
+	if (row < 0 || row >= rows || column < 0 || column >= columns) return false;
+	const tileIds = getMapLayers(map)
+		.map((layer) => map[layer]?.[row]?.[column] ?? 0)
+		.filter((tileId) => tileId !== 0);
 
-			return tileId === 0 || isTileWalkable(tileId);
-		});
+	return tileIds.length === 1 && isTileWalkable(tileIds[0] as number);
 };
-
-validateMapDefinition(INITIAL_MAP);

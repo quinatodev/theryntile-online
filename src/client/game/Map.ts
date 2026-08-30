@@ -1,7 +1,16 @@
 export type RuntimeMap = Readonly<Record<number, readonly (readonly number[])[]>>;
+export type RuntimeTileDefinitions = Readonly<Record<number, boolean>>;
 
 export const LAYER_HEIGHT = 8;
-const TILE_TEXTURE_DIRECTORIES = ["grass", "ice"] as const;
+const TILE_TEXTURE_DIRECTORIES: Readonly<Record<number, string>> = {
+	0: "grass",
+	1: "ice",
+	2: "sand",
+	3: "grass",
+	4: "water",
+	5: "rock",
+	9: "decorations",
+};
 
 /**
  * Lang: pt-BR
@@ -44,6 +53,7 @@ export const getMapTileIds = (map: RuntimeMap): number[] => [...new Set(
  * Resolves a Tile asset from a validated ID in the runtime map.
  */
 export const getTileTextureSource = (tileId: number): string => {
+	if (!Number.isSafeInteger(tileId) || tileId <= 0) throw new Error(`Invalid Tile ID for texture lookup: ${tileId}.`);
 	const directory = TILE_TEXTURE_DIRECTORIES[Math.floor(tileId / 100)];
 	if (!directory) throw new Error(`No texture directory is configured for Tile ID ${tileId}.`);
 
@@ -57,7 +67,12 @@ export const getTileTextureSource = (tileId: number): string => {
  * Lang: en-US
  * Centralizes the client-side terrain rule mirrored for UX: ID 1 is walkable.
  */
-export const isTileWalkable = (tileId: number): boolean => tileId === 1;
+export const isTileWalkable = (tileDefinitions: RuntimeTileDefinitions, tileId: number): boolean => {
+	const walkable = tileDefinitions[tileId];
+	if (walkable === undefined) throw new Error(`Tile ${tileId} is not registered.`);
+
+	return walkable;
+};
 
 /**
  * Lang: pt-BR
@@ -66,15 +81,17 @@ export const isTileWalkable = (tileId: number): boolean => tileId === 1;
  * Lang: en-US
  * Evaluates bounds and walkability using only the current runtime map.
  */
-export const isCellWalkable = (map: RuntimeMap, row: number, column: number): boolean => {
+export const isCellWalkable = (
+	map: RuntimeMap, tileDefinitions: RuntimeTileDefinitions, row: number, column: number,
+): boolean => {
 	const { rows, columns } = getMapBounds(map);
 
-	return row >= 0 && row < rows && column >= 0 && column < columns
-		&& getMapLayers(map).every((layer) => {
-			const tileId = map[layer]?.[row]?.[column] ?? 0;
+	if (row < 0 || row >= rows || column < 0 || column >= columns) return false;
+	const tileIds = getMapLayers(map)
+		.map((layer) => map[layer]?.[row]?.[column] ?? 0)
+		.filter((tileId) => tileId !== 0);
 
-			return tileId === 0 || isTileWalkable(tileId);
-		});
+	return tileIds.length === 1 && isTileWalkable(tileDefinitions, tileIds[0] as number);
 };
 
 /**

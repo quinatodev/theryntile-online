@@ -104,7 +104,7 @@ export async function startGame(
 	const cameraSystem = new CameraSystem();
 	const hoverSystem = new HoverSystem();
 	const selectSystem = new SelectSystem();
-	const walkHintSystem = new WalkHintSystem(config.map, config.movement.maxSteps);
+	const walkHintSystem = new WalkHintSystem(config.map, config.tileDefinitions, config.movement.maxSteps);
 	const renderSystem = await RenderSystem.create(surface, getMapTileIds(config.map));
 	const playerEntities = new Map<number, Entity>();
 	addTileEntities(world, config);
@@ -185,12 +185,12 @@ export async function startGame(
 	const updateHoverAndPath = () => {
 		world.pathPreviewTiles.clear();
 		world.invalidHoveredTiles.clear();
-		const hoveredEntity = hoverSystem.update(world, config.map, camera, canvas.width, canvas.height, pointer);
+		const hoveredEntity = hoverSystem.update(world, config.map, config.tileDefinitions, camera, canvas.width, canvas.height, pointer);
 		if (hoveredEntity === undefined || world.movingPlayers.has(localPlayerEntity)) return hoveredEntity;
 		const target = world.gridPositions.get(hoveredEntity);
 		const current = world.gridPositions.get(localPlayerEntity);
 		if (!target || !current) return hoveredEntity;
-		const path = findPath(config.map, current, target);
+		const path = findPath(config.map, config.tileDefinitions, current, target);
 		if (!path || path.length === 0) return hoveredEntity;
 		if (path.length > config.movement.maxSteps) {
 			world.invalidHoveredTiles.add(hoveredEntity);
@@ -218,11 +218,11 @@ export async function startGame(
 		const target = hoveredEntity === undefined ? undefined : world.gridPositions.get(hoveredEntity);
 		const current = world.gridPositions.get(localPlayerEntity);
 		if (!target || !current) return;
-		const path = findPath(config.map, current, target);
+		const path = findPath(config.map, config.tileDefinitions, current, target);
 		if (!path || path.length === 0 || path.length > config.movement.maxSteps) return;
 		if (!requestMove(target.row, target.column)) return;
 		const selectedEntity = selectSystem.select(
-			world, config.map, hoveredEntity, path.length, config.movement.maxSteps, world.movingPlayers.has(localPlayerEntity),
+			world, config.map, config.tileDefinitions, hoveredEntity, path.length, config.movement.maxSteps, world.movingPlayers.has(localPlayerEntity),
 		);
 		if (selectedEntity === undefined) return;
 		world.movingPlayers.add(localPlayerEntity);
@@ -269,7 +269,7 @@ export async function startGame(
 		},
 		playerMoved(message) {
 			if (disposed) return;
-			if (!isCellWalkable(config.map, message.row, message.column)) return;
+			if (!isCellWalkable(config.map, config.tileDefinitions, message.row, message.column)) return;
 			const entity = playerEntities.get(message.playerId);
 			if (entity === undefined) return;
 			enqueueMovementStep(world, entity, message);

@@ -43,3 +43,9 @@ test("createTileEntity installs grid, texture, and layer render configuration pe
 	assert.deepEqual(world.tiles.get(upper), { textureId: 101 });
 	assert.deepEqual(world.renderables.get(upper), { layer: 1, order: 0 });
 });
+
+test("createTileEntity preserves a sparse runtime texture ID without normalization", () => {
+	const world = new World();
+	const entity = createTileEntity(world, 4, 12, 1, 502);
+	assert.deepEqual(world.tiles.get(entity), { textureId: 502 });
+});

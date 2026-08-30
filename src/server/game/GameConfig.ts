@@ -1,4 +1,6 @@
 import { Newbie } from "./map/Newbie.js";
+import { validateMapDefinition } from "./Map.js";
+import { getTileDefinitions } from "./TileRegistry.js";
 
 /**
  * Lang: pt-BR
@@ -12,7 +14,7 @@ import { Newbie } from "./map/Newbie.js";
 export const GAME_CONFIG = {
 	maps: { lobby: Newbie },
 	movement: { maxSteps: 5 },
-	zoom: { max: 3, min: 1 },
+	zoom: { max: 5, min: 2 },
 } as const;
 
 export const INITIAL_MAP_ID: keyof typeof GAME_CONFIG.maps = "lobby";
@@ -24,13 +26,19 @@ export const INITIAL_MAP_ID: keyof typeof GAME_CONFIG.maps = "lobby";
  * Lang: en-US
  * Serializes only the initial map and settings required by the Game, never the whole registry.
  */
-export const createGameBootstrapPayload = (zoomPreference: number) => ({
-	map: GAME_CONFIG.maps[INITIAL_MAP_ID],
-	mapId: INITIAL_MAP_ID,
-	movement: GAME_CONFIG.movement,
-	zoom: GAME_CONFIG.zoom,
-	zoomPreference: clampZoom(zoomPreference),
-});
+export const createGameBootstrapPayload = (zoomPreference: number) => {
+	const map = GAME_CONFIG.maps[INITIAL_MAP_ID];
+	validateMapDefinition(map);
+
+	return {
+		map,
+		mapId: INITIAL_MAP_ID,
+		movement: GAME_CONFIG.movement,
+		tileDefinitions: getTileDefinitions(),
+		zoom: GAME_CONFIG.zoom,
+		zoomPreference: clampZoom(zoomPreference),
+	};
+};
 
 /**
  * Lang: pt-BR

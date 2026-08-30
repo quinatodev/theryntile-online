@@ -5,32 +5,45 @@ import { getAuthorizedPath, findPath } from "./Navigation.js";
 import { RouteState } from "./RouteState.js";
 
 const current = { row: 2, column: 2 };
+const OPEN_MAP = { 0: Array.from({ length: 7 }, () => Array<number>(7).fill(1)) };
 
 test("authoritative A* accepts paths of one through five steps", () => {
-	assert.equal(getAuthorizedPath(current, { row: 2, column: 3 })?.length, 1);
-	assert.equal(getAuthorizedPath({ row: 0, column: 0 }, { row: 0, column: 5 })?.length, 5);
+	assert.equal(getAuthorizedPath(current, { row: 2, column: 3 }, OPEN_MAP)?.length, 1);
+	assert.equal(getAuthorizedPath({ row: 0, column: 0 }, { row: 0, column: 5 }, OPEN_MAP)?.length, 5);
 });
 
 test("authoritative A* rejects six steps without truncating", () => {
-	assert.equal(getAuthorizedPath({ row: 0, column: 0 }, { row: 0, column: 6 }), undefined);
+	assert.equal(getAuthorizedPath({ row: 0, column: 0 }, { row: 0, column: 6 }, OPEN_MAP), undefined);
 });
 
 test("authoritative A* follows deterministic orthogonal curves around Tile 101", () => {
-	const path = findPath({ row: 5, column: 3 }, { row: 3, column: 5 });
+	const map = { 0: Array.from({ length: 7 }, () => Array<number>(7).fill(1)), 1: Array.from({ length: 7 }, (_, row) => Array.from({ length: 7 }, (_, column) => row >= 4 && row <= 6 && column >= 4 && column <= 6 ? 1 : 0)) };
+	const path = findPath({ row: 5, column: 3 }, { row: 3, column: 5 }, map);
 	assert.deepEqual(path, [
 		{ row: 4, column: 3 }, { row: 3, column: 3 }, { row: 3, column: 4 }, { row: 3, column: 5 },
 	]);
-	assert.deepEqual(findPath({ row: 5, column: 3 }, { row: 3, column: 5 }), path);
+	assert.deepEqual(findPath({ row: 5, column: 3 }, { row: 3, column: 5 }, map), path);
 });
 
 test("authoritative A* rejects blocked, out-of-map, and obstacle detours longer than five", () => {
-	assert.equal(getAuthorizedPath({ row: 0, column: 0 }, { row: -1, column: 0 }), undefined);
-	assert.equal(getAuthorizedPath({ row: 3, column: 3 }, { row: 4, column: 4 }), undefined);
-	assert.equal(getAuthorizedPath({ row: 4, column: 3 }, { row: 4, column: 7 }), undefined);
+	assert.equal(getAuthorizedPath({ row: 0, column: 0 }, { row: -1, column: 0 }, OPEN_MAP), undefined);
+	assert.equal(getAuthorizedPath({ row: 3, column: 3 }, { row: 4, column: 4 }, { 0: OPEN_MAP[0], 1: OPEN_MAP[0] }), undefined);
+	assert.equal(getAuthorizedPath({ row: 4, column: 3 }, { row: 4, column: 7 }, OPEN_MAP), undefined);
 });
 
 test("Player occupancy is absent from authoritative navigation so stacking remains allowed", () => {
-	assert.deepEqual(getAuthorizedPath(current, { row: 1, column: 2 }), [{ row: 1, column: 2 }]);
+	assert.deepEqual(getAuthorizedPath(current, { row: 1, column: 2 }, OPEN_MAP), [{ row: 1, column: 2 }]);
+});
+
+test("authoritative A-star rejects gaps, isolated Tiles, and real detours above maxSteps", () => {
+	const gap = { 0: [[1, 1, 0, 501]] };
+	assert.equal(findPath({ row: 0, column: 0 }, { row: 0, column: 3 }, gap), undefined);
+	const detour = { 0: [
+		[1, 1, 1, 1, 1],
+		[1, 0, 0, 0, 1],
+		[1, 1, 1, 1, 1],
+	] };
+	assert.equal(getAuthorizedPath({ row: 1, column: 0 }, { row: 1, column: 4 }, detour), undefined);
 });
 
 test("authoritative route lock rejects concurrent intent and unlocks after completion or cleanup", () => {

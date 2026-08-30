@@ -1,6 +1,6 @@
 import { type GridPosition } from "../ecs/Components.js";
 import { isCellWalkable } from "./Map.js";
-import { type RuntimeMap } from "./Map.js";
+import { type RuntimeMap, type RuntimeTileDefinitions } from "./Map.js";
 
 /**
  * Lang: pt-BR
@@ -30,8 +30,11 @@ const heuristic = (a: GridPosition, b: GridPosition) => Math.abs(a.row - b.row) 
  * Lang: en-US
  * Computes client-side orthogonal A* for UX with Manhattan and deterministic tie-breaking; the server recalculates the route.
  */
-export function findPath(map: RuntimeMap, start: GridPosition, target: GridPosition): GridPosition[] | undefined {
-	if (!isCellWalkable(map, start.row, start.column) || !isCellWalkable(map, target.row, target.column)) return undefined;
+export function findPath(
+	map: RuntimeMap, tileDefinitions: RuntimeTileDefinitions, start: GridPosition, target: GridPosition,
+): GridPosition[] | undefined {
+	if (!isCellWalkable(map, tileDefinitions, start.row, start.column)
+		|| !isCellWalkable(map, tileDefinitions, target.row, target.column)) return undefined;
 	if (start.row === target.row && start.column === target.column) return [];
 	const open: Array<{ position: GridPosition; g: number; f: number; sequence: number }> = [
 		{ position: start, g: 0, f: heuristic(start, target), sequence: 0 },
@@ -59,7 +62,7 @@ export function findPath(map: RuntimeMap, start: GridPosition, target: GridPosit
 
 		for (const delta of NEIGHBOURS) {
 			const next = { row: current.position.row + delta.row, column: current.position.column + delta.column };
-			if (!isCellWalkable(map, next.row, next.column)) continue;
+			if (!isCellWalkable(map, tileDefinitions, next.row, next.column)) continue;
 			const nextCost = current.g + 1;
 			if (nextCost >= (costs.get(keyOf(next)) ?? Number.POSITIVE_INFINITY)) continue;
 			costs.set(keyOf(next), nextCost);
@@ -81,7 +84,9 @@ export function findPath(map: RuntimeMap, start: GridPosition, target: GridPosit
  */
 export interface ReachableCell extends GridPosition { distance: number }
 
-export function getReachableCells(map: RuntimeMap, start: GridPosition, maxSteps: number): ReachableCell[] {
+export function getReachableCells(
+	map: RuntimeMap, tileDefinitions: RuntimeTileDefinitions, start: GridPosition, maxSteps: number,
+): ReachableCell[] {
 	const queue = [{ position: start, distance: 0 }];
 	const visited = new Set([keyOf(start)]);
 	const reachable: ReachableCell[] = [];
@@ -92,7 +97,7 @@ export function getReachableCells(map: RuntimeMap, start: GridPosition, maxSteps
 		for (const delta of NEIGHBOURS) {
 			const next = { row: current.position.row + delta.row, column: current.position.column + delta.column };
 			const key = keyOf(next);
-			if (visited.has(key) || !isCellWalkable(map, next.row, next.column)) continue;
+			if (visited.has(key) || !isCellWalkable(map, tileDefinitions, next.row, next.column)) continue;
 			visited.add(key);
 			reachable.push({ ...next, distance: current.distance + 1 });
 			queue.push({ position: next, distance: current.distance + 1 });
@@ -109,8 +114,10 @@ export function getReachableCells(map: RuntimeMap, start: GridPosition, maxSteps
  * Lang: en-US
  * Accepts for UX only destinations whose complete route fits the received runtime limit, without truncating longer paths.
  */
-export const isValidDestination = (map: RuntimeMap, start: GridPosition, target: GridPosition, maxSteps: number): boolean => {
-	const path = findPath(map, start, target);
+export const isValidDestination = (
+	map: RuntimeMap, tileDefinitions: RuntimeTileDefinitions, start: GridPosition, target: GridPosition, maxSteps: number,
+): boolean => {
+	const path = findPath(map, tileDefinitions, start, target);
 
 	return path !== undefined && path.length > 0 && path.length <= maxSteps;
 };

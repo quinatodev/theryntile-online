@@ -1,7 +1,7 @@
 import { type Entity } from "../Components.js";
 import { type World } from "../World.js";
 import { getReachableCells } from "../../game/Navigation.js";
-import { type RuntimeMap } from "../../game/Map.js";
+import { type RuntimeMap, type RuntimeTileDefinitions } from "../../game/Map.js";
 
 export const WALK_HINT_IDLE_MS = 2_000;
 export const HINT_RING_INTERVAL_MS = 140;
@@ -21,7 +21,11 @@ export class WalkHintSystem {
 	private lastGridKey: string | undefined;
 	private reachableByDistance = new Map<number, Entity[]>();
 
-	constructor(private readonly map: RuntimeMap, private readonly maxMovementSteps: number) {}
+	constructor(
+		private readonly map: RuntimeMap,
+		private readonly tileDefinitions: RuntimeTileDefinitions,
+		private readonly maxMovementSteps: number,
+	) {}
 
 	reset(world: World): void {
 		this.idleSince = undefined;
@@ -57,7 +61,8 @@ export class WalkHintSystem {
 		const elapsed = timestamp - this.idleSince;
 		if (elapsed < WALK_HINT_IDLE_MS) return;
 		if (this.reachableByDistance.size === 0) {
-			const distances = new Map(getReachableCells(this.map, grid, this.maxMovementSteps).map(({ row, column, distance }) => [`${row}:${column}`, distance]));
+			const distances = new Map(getReachableCells(this.map, this.tileDefinitions, grid, this.maxMovementSteps)
+				.map(({ row, column, distance }) => [`${row}:${column}`, distance]));
 			for (const entity of world.tiles.keys()) {
 				const tileGrid = world.gridPositions.get(entity);
 				const renderable = world.renderables.get(entity);

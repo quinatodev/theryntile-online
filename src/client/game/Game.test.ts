@@ -34,7 +34,8 @@ test("Game creates all 130 Tile Entities exclusively from a serialized runtime p
 	};
 	const world = new World();
 	addTileEntities(world, {
-		map, mapId: "lobby", movement: { maxSteps: 5 }, zoom: { max: 3, min: 1 }, zoomPreference: 1,
+		map, mapId: "lobby", movement: { maxSteps: 5 }, tileDefinitions: { 1: true, 101: false },
+		zoom: { max: 3, min: 1 }, zoomPreference: 1,
 	});
 	assert.equal(world.tiles.size, 130);
 	assert.equal([...world.tiles.values()].filter(({ textureId }) => textureId === 1).length, 121);

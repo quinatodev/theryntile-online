@@ -11,7 +11,8 @@ const createSerializedNewbiePayload = () => ({
 			{ length: 11 }, (_, column) => row >= 4 && row <= 6 && column >= 4 && column <= 6 ? 101 : 0,
 		)),
 	},
-	mapId: "lobby", movement: { maxSteps: 5 }, zoom: { max: 3, min: 1 }, zoomPreference: 2,
+	mapId: "lobby", movement: { maxSteps: 5 }, tileDefinitions: { 1: true, 101: false, 501: true },
+	zoom: { max: 3, min: 1 }, zoomPreference: 2,
 });
 
 test("runtime config accepts a serialized Newbie payload and clamps persisted zoom", () => {
@@ -28,6 +29,8 @@ test("runtime map parser rejects every malformed structural class", () => {
 	const payload = createSerializedNewbiePayload();
 	assert.throws(() => parseGameBootstrapConfig({ ...payload, mapId: "" }));
 	assert.throws(() => parseGameBootstrapConfig({ ...payload, movement: { maxSteps: 0 } }));
+	assert.throws(() => parseGameBootstrapConfig({ ...payload, tileDefinitions: { 0: true } }));
+	assert.throws(() => parseGameBootstrapConfig({ ...payload, tileDefinitions: { 1: true } }), /Tile 101 is not registered/);
 	assert.throws(() => parseGameBootstrapConfig({ ...payload, zoom: { min: 3, max: 1 } }));
 });
 
@@ -37,6 +40,7 @@ test("bootstrap parser reports the exact invalid field without weakening validat
 	assert.throws(() => parseGameBootstrapConfig({ ...payload, map: undefined }), /runtime map/);
 	assert.throws(() => parseGameBootstrapConfig({ ...payload, movement: undefined }), /movement/);
 	assert.throws(() => parseGameBootstrapConfig({ ...payload, movement: { maxSteps: 0 } }), /maxSteps/);
+	assert.throws(() => parseGameBootstrapConfig({ ...payload, tileDefinitions: undefined }), /tileDefinitions/);
 	assert.throws(() => parseGameBootstrapConfig({ ...payload, zoom: undefined }), /zoom/);
 	assert.throws(() => parseGameBootstrapConfig({ ...payload, zoomPreference: "1" }), /zoomPreference/);
 });

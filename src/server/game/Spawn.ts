@@ -11,7 +11,16 @@ export interface SpawnPosition {
 	row: number;
 	column: number;
 }
+
 import { getMapBounds, INITIAL_MAP, isCellWalkable, type MapDefinition } from "./Map.js";
+import { NEWBIE_SPAWN_AREA } from "./map/Newbie.js";
+
+export interface SpawnArea {
+	maxColumn: number;
+	maxRow: number;
+	minColumn: number;
+	minRow: number;
+}
 
 /**
  * Lang: pt-BR
@@ -26,13 +35,18 @@ export function getRandomSpawn(
 	occupiedPositions: readonly SpawnPosition[],
 	random: () => number = Math.random,
 	map: MapDefinition = INITIAL_MAP,
+	spawnArea: SpawnArea = NEWBIE_SPAWN_AREA,
 ): SpawnPosition {
 	const availablePositions: SpawnPosition[] = [];
 	const allPositions: SpawnPosition[] = [];
 
 	const { rows, columns } = getMapBounds(map);
-	for (let row = 0; row < rows; row += 1) {
-		for (let column = 0; column < columns; column += 1) {
+	const minRow = Math.max(0, spawnArea.minRow);
+	const maxRow = Math.min(rows - 1, spawnArea.maxRow);
+	const minColumn = Math.max(0, spawnArea.minColumn);
+	const maxColumn = Math.min(columns - 1, spawnArea.maxColumn);
+	for (let row = minRow; row <= maxRow; row += 1) {
+		for (let column = minColumn; column <= maxColumn; column += 1) {
 			if (!isCellWalkable(map, row, column)) continue;
 			allPositions.push({ row, column });
 			const occupied = occupiedPositions.some((position) => position.row === row && position.column === column);
@@ -44,6 +58,7 @@ export function getRandomSpawn(
 	}
 
 	const candidates = availablePositions.length > 0 ? availablePositions : allPositions;
+	if (candidates.length === 0) throw new Error("Spawn area contains no walkable cells.");
 
 	return candidates[Math.floor(random() * candidates.length)] as SpawnPosition;
 }

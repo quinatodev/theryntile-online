@@ -10,12 +10,12 @@
 import { type Entity } from "../Components.js";
 import { type World } from "../World.js";
 import { isCellWalkable } from "../../game/Map.js";
-import { type RuntimeMap } from "../../game/Map.js";
+import { type RuntimeMap, type RuntimeTileDefinitions } from "../../game/Map.js";
 
 export class SelectSystem {
-	select(world: World, map: RuntimeMap, entity: Entity | undefined, pathLength?: number, maxMovementSteps?: number, routeActive = false): Entity | undefined {
+	select(world: World, map: RuntimeMap, tileDefinitions: RuntimeTileDefinitions, entity: Entity | undefined, pathLength?: number, maxMovementSteps?: number, routeActive = false): Entity | undefined {
 		const grid = entity === undefined ? undefined : world.gridPositions.get(entity);
-		if (entity === undefined || !world.tiles.has(entity) || !grid || !isCellWalkable(map, grid.row, grid.column)
+		if (entity === undefined || !world.tiles.has(entity) || !grid || !isCellWalkable(map, tileDefinitions, grid.row, grid.column)
 			|| pathLength === undefined || maxMovementSteps === undefined
 			|| pathLength <= 0 || pathLength > maxMovementSteps || routeActive) return undefined;
 		world.selectedTiles.clear();

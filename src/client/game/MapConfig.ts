@@ -1,14 +1,30 @@
-import { type RuntimeMap } from "./Map.js";
+import { getMapTileIds, type RuntimeMap, type RuntimeTileDefinitions } from "./Map.js";
 
 export interface GameRuntimeConfig {
 	map: RuntimeMap;
 	mapId: string;
 	movement: { maxSteps: number };
+	tileDefinitions: RuntimeTileDefinitions;
 	zoom: { max: number; min: number };
 	zoomPreference: number;
 }
 
 const isInteger = (value: unknown): value is number => Number.isSafeInteger(value);
+
+export function parseTileDefinitions(value: unknown): RuntimeTileDefinitions {
+	if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Invalid game configuration: tileDefinitions must be an object.");
+	const definitions: Record<number, boolean> = {};
+	for (const [key, walkable] of Object.entries(value)) {
+		const id = Number(key);
+		if (!Number.isSafeInteger(id) || id <= 0 || String(id) !== key || typeof walkable !== "boolean") {
+			throw new Error("Invalid game configuration: tileDefinitions contains an invalid entry.");
+		}
+		definitions[id] = walkable;
+	}
+	if (Object.keys(definitions).length === 0) throw new Error("Invalid game configuration: tileDefinitions cannot be empty.");
+
+	return definitions;
+}
 
 /**
  * Lang: pt-BR
@@ -64,10 +80,17 @@ export function parseGameBootstrapConfig(value: unknown): GameRuntimeConfig {
 	if (!isInteger(zoom.min) || !isInteger(zoom.max) || zoom.min > zoom.max) throw new Error("Invalid game configuration: zoom limits must be ordered safe integers.");
 	if (!isInteger(response.zoomPreference)) throw new Error("Invalid game configuration: zoomPreference must be a safe integer.");
 
+	const map = parseRuntimeMap(response.map);
+	const tileDefinitions = parseTileDefinitions(response.tileDefinitions);
+	for (const tileId of getMapTileIds(map)) {
+		if (tileDefinitions[tileId] === undefined) throw new Error(`Tile ${tileId} is not registered.`);
+	}
+
 	return {
-		map: parseRuntimeMap(response.map),
+		map,
 		mapId: response.mapId,
 		movement: { maxSteps: movement.maxSteps },
+		tileDefinitions,
 		zoom: { max: zoom.max, min: zoom.min },
 		zoomPreference: Math.max(zoom.min, Math.min(zoom.max, response.zoomPreference)),
 	};

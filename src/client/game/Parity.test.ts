@@ -1,31 +1,42 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { GAME_CONFIG } from "../../server/game/GameConfig.js";
-import { INITIAL_MAP, isCellWalkable as isServerCellWalkable } from "../../server/game/Map.js";
+import { isCellWalkable as isServerCellWalkable } from "../../server/game/Map.js";
 import { findPath as findServerPath } from "../../server/game/Navigation.js";
+import { registerTile } from "../../server/game/TileRegistry.js";
 import { parseGameBootstrapConfig } from "./MapConfig.js";
 import { isCellWalkable } from "./Map.js";
 import { findPath } from "./Navigation.js";
 
+registerTile(600, false);
+
+const MAP = {
+	0: [[1, 1, 600, 501], [1, 1, 1, 0], [1, 1, 1, 501]],
+	1: [[0, 1, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]],
+};
 const runtime = parseGameBootstrapConfig({
-	map: GAME_CONFIG.maps.lobby, mapId: "lobby", movement: GAME_CONFIG.movement,
-	zoom: GAME_CONFIG.zoom, zoomPreference: 1,
+	map: MAP, mapId: "fixture", movement: { maxSteps: 5 }, tileDefinitions: { 1: true, 501: true, 600: false },
+	zoom: { min: 1, max: 3 }, zoomPreference: 1,
 });
 
-test("server map payload survives client parsing without a second client map definition", () => {
-	assert.deepEqual(runtime.map, INITIAL_MAP);
-	assert.equal(runtime.movement.maxSteps, GAME_CONFIG.movement.maxSteps);
-	for (let row = -1; row <= 11; row += 1) for (let column = -1; column <= 11; column += 1) {
-		assert.equal(isCellWalkable(runtime.map, row, column), isServerCellWalkable(INITIAL_MAP, row, column));
+test("server payload round-trip preserves Tile definitions and cell-walkability parity", () => {
+	assert.deepEqual(runtime.tileDefinitions, { 1: true, 501: true, 600: false });
+	for (let row = -1; row <= 3; row += 1) for (let column = -1; column <= 4; column += 1) {
+		assert.equal(
+			isCellWalkable(runtime.map, runtime.tileDefinitions, row, column),
+			isServerCellWalkable(MAP, row, column),
+		);
 	}
 });
 
-test("independent client and server A-star implementations preserve deterministic paths", () => {
+test("client and server A-star agree for continuous, empty-gap, stacked, and isolated routes", () => {
 	const routes = [
-		[{ row: 0, column: 0 }, { row: 0, column: 5 }],
-		[{ row: 5, column: 3 }, { row: 3, column: 5 }],
-		[{ row: 4, column: 3 }, { row: 4, column: 7 }],
+		[{ row: 1, column: 0 }, { row: 1, column: 2 }],
+		[{ row: 0, column: 0 }, { row: 0, column: 3 }],
+		[{ row: 1, column: 0 }, { row: 0, column: 1 }],
+		[{ row: 1, column: 0 }, { row: 2, column: 3 }],
 	] as const;
-	for (const [start, target] of routes) assert.deepEqual(findPath(runtime.map, start, target), findServerPath(start, target));
+	for (const [start, target] of routes) {
+		assert.deepEqual(findPath(runtime.map, runtime.tileDefinitions, start, target), findServerPath(start, target, MAP));
+	}
 });

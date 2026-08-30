@@ -1,34 +1,37 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { getRandomSpawn, type SpawnPosition } from "./Spawn.js";
-import { getMapBounds, INITIAL_MAP, isCellWalkable } from "./Map.js";
+import { getRandomSpawn, type SpawnArea, type SpawnPosition } from "./Spawn.js";
+import { registerTile } from "./TileRegistry.js";
 
-const { columns: MAP_COLUMNS, rows: MAP_ROWS } = getMapBounds(INITIAL_MAP);
+registerTile(600, false);
 
-const allPositions = (): SpawnPosition[] => Array.from({ length: MAP_ROWS * MAP_COLUMNS }, (_, index) => ({
-	row: Math.floor(index / MAP_COLUMNS),
-	column: index % MAP_COLUMNS,
-})).filter(({ row, column }) => isCellWalkable(INITIAL_MAP, row, column));
+const MAP = {
+	0: [[1, 1, 600, 501], [1, 1, 1, 501]],
+	1: [[0, 1, 0, 0], [0, 0, 0, 0]],
+};
+const AREA: SpawnArea = { minRow: 0, maxRow: 1, minColumn: 0, maxColumn: 2 };
+const candidates: SpawnPosition[] = [{ row: 0, column: 0 }, { row: 1, column: 0 }, { row: 1, column: 1 }, { row: 1, column: 2 }];
 
-test("getRandomSpawn returns an available position inside the lobby", () => {
-	assert.deepEqual(getRandomSpawn([{ row: 0, column: 0 }], () => 0), { row: 0, column: 1 });
+test("Spawn uses only single walkable Tiles inside the inclusive spawn area", () => {
+	assert.deepEqual(getRandomSpawn([], () => 0, MAP, AREA), { row: 0, column: 0 });
+	assert.deepEqual(getRandomSpawn([], () => 0.999, MAP, AREA), { row: 1, column: 2 });
 });
 
-test("getRandomSpawn returns the only available position", () => {
-	const occupied = allPositions().filter(({ row, column }) => row !== 10 || column !== 9);
-
-	assert.deepEqual(getRandomSpawn(occupied, () => 0.75), { row: 10, column: 9 });
-});
-
-test("getRandomSpawn returns a valid fallback when every position is occupied", () => {
-	assert.deepEqual(getRandomSpawn(allPositions(), () => 0), { row: 0, column: 0 });
-	assert.deepEqual(getRandomSpawn(allPositions(), () => 0.999), { row: 10, column: 10 });
-});
-
-test("getRandomSpawn never uses the blocked central 3x3 area", () => {
+test("Spawn excludes empty, stacked, and out-of-area walkable cells", () => {
 	for (const random of [0, 0.25, 0.5, 0.75, 0.999]) {
-		const spawn = getRandomSpawn([], () => random);
-		assert.equal(isCellWalkable(INITIAL_MAP, spawn.row, spawn.column), true);
+		const spawn = getRandomSpawn([], () => random, MAP, AREA);
+		assert.notDeepEqual(spawn, { row: 0, column: 1 });
+		assert.notDeepEqual(spawn, { row: 0, column: 2 });
+		assert.notDeepEqual(spawn, { row: 0, column: 3 });
 	}
+});
+
+test("Spawn prefers free cells and shares a valid cell only when all candidates are occupied", () => {
+	assert.deepEqual(getRandomSpawn(candidates.slice(0, -1), () => 0.5, MAP, AREA), { row: 1, column: 2 });
+	assert.deepEqual(getRandomSpawn(candidates, () => 0, MAP, AREA), { row: 0, column: 0 });
+});
+
+test("Spawn fails explicitly when its area has no walkable candidate", () => {
+	assert.throws(() => getRandomSpawn([], () => 0, MAP, { minRow: 0, maxRow: 0, minColumn: 1, maxColumn: 2 }), /no walkable cells/);
 });
