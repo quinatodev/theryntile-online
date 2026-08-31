@@ -76,6 +76,7 @@ test("MovementSystem keeps Walk and route lock between authoritative steps", () 
 	assert.equal(world.movements.has(entity), false);
 });
 
+/** Lang: pt-BR - Monta um Player mínimo para movimento. Lang: en-US - Builds a minimal Player for movement. */
 const createMovingPlayer = (world: World, local = false) => {
 	const entity = world.createEntity();
 	world.gridPositions.set(entity, { column: 0, row: 0 });

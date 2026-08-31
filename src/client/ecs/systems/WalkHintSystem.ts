@@ -2,18 +2,15 @@ import { type Entity } from "../Components.js";
 import { type World } from "../World.js";
 import { getReachableCells } from "../../game/Navigation.js";
 import { type RuntimeMap, type RuntimeTileDefinitions } from "../../game/Map.js";
-
-export const WALK_HINT_IDLE_MS = 2_000;
-export const HINT_RING_INTERVAL_MS = 140;
-export const HINT_FADE_DURATION_MS = 500;
+import { CLIENT_CONFIG } from "../../game/ClientConfig.js";
 
 /**
  * Lang: pt-BR
- * Deriva por BFS os anéis alcançáveis, revela-os a cada 140 ms e aplica fade conjunto de 500 ms na RAF existente.
+ * Deriva por BFS os anéis alcançáveis, calcula o fade-in individual e aplica fade-out conjunto na RAF existente.
  * Limpa o estado durante movimento e reinicia o delay normal somente após concluir o ciclo.
  *
  * Lang: en-US
- * Derives reachable BFS rings, reveals them every 140 ms, and applies a shared 500 ms fade on the existing RAF.
+ * Derives reachable BFS rings, calculates individual fade-in, and applies shared fade-out on the existing RAF.
  * Clears state during movement and restarts the normal delay only after completing the cycle.
  */
 export class WalkHintSystem {
@@ -27,14 +24,17 @@ export class WalkHintSystem {
 		private readonly maxMovementSteps: number,
 	) {}
 
+	/** Lang: pt-BR - Reinicia todo o ciclo visual de hints. Lang: en-US - Resets the complete visual hint cycle. */
 	reset(world: World): void {
 		this.idleSince = undefined;
 		this.lastGridKey = undefined;
 		world.hintedTiles.clear();
-		world.walkHintAlpha = 1;
+		world.hintedTileAlphas.clear();
+		world.walkHintAlpha = CLIENT_CONFIG.hints.maxAlpha;
 		this.reachableByDistance.clear();
 	}
 
+	/** Lang: pt-BR - Revela anéis alcançáveis e executa seu fade configurado. Lang: en-US - Reveals reachable rings and runs their configured fade. */
 	update(world: World, localPlayer: Entity, timestamp: number): void {
 		const grid = world.gridPositions.get(localPlayer);
 		if (!grid) return;
@@ -43,7 +43,8 @@ export class WalkHintSystem {
 			this.idleSince = undefined;
 			this.lastGridKey = key;
 			world.hintedTiles.clear();
-			world.walkHintAlpha = 1;
+			world.hintedTileAlphas.clear();
+			world.walkHintAlpha = CLIENT_CONFIG.hints.maxAlpha;
 			this.reachableByDistance.clear();
 
 			return;
@@ -52,14 +53,15 @@ export class WalkHintSystem {
 			this.lastGridKey = key;
 			this.idleSince = timestamp;
 			world.hintedTiles.clear();
-			world.walkHintAlpha = 1;
+			world.hintedTileAlphas.clear();
+			world.walkHintAlpha = CLIENT_CONFIG.hints.maxAlpha;
 			this.reachableByDistance.clear();
 
 			return;
 		}
 		this.idleSince ??= timestamp;
 		const elapsed = timestamp - this.idleSince;
-		if (elapsed < WALK_HINT_IDLE_MS) return;
+		if (elapsed < CLIENT_CONFIG.hints.delayMs) return;
 		if (this.reachableByDistance.size === 0) {
 			const distances = new Map(getReachableCells(this.map, this.tileDefinitions, grid, this.maxMovementSteps)
 				.map(({ row, column, distance }) => [`${row}:${column}`, distance]));
@@ -74,19 +76,28 @@ export class WalkHintSystem {
 				}
 			}
 		}
-		const revealElapsed = elapsed - WALK_HINT_IDLE_MS;
+		const revealElapsed = elapsed - CLIENT_CONFIG.hints.delayMs;
 		const lastDistance = Math.max(0, ...this.reachableByDistance.keys());
-		const revealedDistance = Math.min(lastDistance, Math.floor(revealElapsed / HINT_RING_INTERVAL_MS) + 1);
+		const revealedDistance = Math.min(lastDistance, Math.floor(revealElapsed / CLIENT_CONFIG.hints.ringIntervalMs) + 1);
 		for (let distance = 1; distance <= revealedDistance; distance += 1) {
-			for (const entity of this.reachableByDistance.get(distance) ?? []) world.hintedTiles.add(entity);
+			const ringElapsed = revealElapsed - (distance - 1) * CLIENT_CONFIG.hints.ringIntervalMs;
+			const fadeInAlpha = CLIENT_CONFIG.hints.maxAlpha * Math.min(1, Math.max(0, ringElapsed / CLIENT_CONFIG.hints.fadeInDurationMs));
+			for (const entity of this.reachableByDistance.get(distance) ?? []) {
+				world.hintedTiles.add(entity);
+				world.hintedTileAlphas.set(entity, fadeInAlpha);
+			}
 		}
-		const fadeStart = lastDistance * HINT_RING_INTERVAL_MS;
+		const fadeStart = lastDistance * CLIENT_CONFIG.hints.ringIntervalMs;
 		if (revealElapsed < fadeStart) return;
-		world.walkHintAlpha = Math.max(0, 1 - (revealElapsed - fadeStart) / HINT_FADE_DURATION_MS);
+		world.walkHintAlpha = CLIENT_CONFIG.hints.maxAlpha * Math.max(
+			0,
+			1 - (revealElapsed - fadeStart) / CLIENT_CONFIG.hints.fadeDurationMs,
+		);
 		if (world.walkHintAlpha > 0) return;
 		world.hintedTiles.clear();
+		world.hintedTileAlphas.clear();
 		this.reachableByDistance.clear();
 		this.idleSince = timestamp;
-		world.walkHintAlpha = 1;
+		world.walkHintAlpha = CLIENT_CONFIG.hints.maxAlpha;
 	}
 }

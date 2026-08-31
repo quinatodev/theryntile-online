@@ -13,7 +13,7 @@ import { getTileDefinitions } from "./TileRegistry.js";
  */
 export const GAME_CONFIG = {
 	maps: { lobby: Newbie },
-	movement: { maxSteps: 5 },
+	movement: { maxSteps: 8 },
 	zoom: { max: 5, min: 2 },
 } as const;
 

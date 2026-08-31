@@ -15,6 +15,7 @@ export const MOVEMENT_DURATION_MS = 500;
 const TILE_WIDTH = 32;
 const TILE_FOOTPRINT_HEIGHT = 16;
 
+/** Lang: pt-BR - Converte um step autoritativo em direção de animação. Lang: en-US - Converts an authoritative step into an animation direction. */
 const movementDirection = ({ column, fromColumn, fromRow, row }: MovementStep) => {
 	if (column > fromColumn) return "right_down" as const;
 	if (column < fromColumn) return "left_top" as const;
@@ -23,6 +24,7 @@ const movementDirection = ({ column, fromColumn, fromRow, row }: MovementStep) =
 	return "right_top" as const;
 };
 
+/** Lang: pt-BR - Inicia o próximo step enfileirado sem antecipar posição lógica. Lang: en-US - Starts the next queued step without anticipating logical position. */
 const startNextMovement = (world: World, entity: Entity): boolean => {
 	const queue = world.movementQueues.get(entity);
 	if (!queue) return false;
@@ -75,7 +77,9 @@ export const enqueueMovementStep = (world: World, entity: Entity, step: Movement
 	if (!world.movements.has(entity)) startNextMovement(world, entity);
 };
 
+/** Lang: pt-BR - Interpola a fila visual de movimento recebida do servidor. Lang: en-US - Interpolates the visual movement queue received from the server. */
 export class MovementSystem {
+	/** Lang: pt-BR - Avança movimentos e consolida steps concluídos. Lang: en-US - Advances movements and commits completed steps. */
 	update(world: World, timestamp: number): void {
 		for (const [entity, movement] of world.movements) {
 			const visualPosition = world.visualPositions.get(entity);

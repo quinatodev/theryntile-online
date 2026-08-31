@@ -12,11 +12,10 @@ import { type Entity, type GridPosition, type MovementComponent, type Renderable
 import { type World } from "../World.js";
 import { ANIMATION_FRAME_COUNT } from "./AnimationSystem.js";
 import { getLayerVisualOffsetY, getTileTextureSource } from "../../game/Map.js";
+import { CLIENT_CONFIG } from "../../game/ClientConfig.js";
 
 const TILE_WIDTH = 32;
 const TILE_FOOTPRINT_HEIGHT = 16;
-const HIGHLIGHT_INSET_X = 2;
-const HIGHLIGHT_INSET_Y = 1;
 
 /**
  * Lang: pt-BR
@@ -43,6 +42,33 @@ export interface Point {
 	y: number;
 }
 
+export interface ScreenAabb {
+	maxX: number;
+	maxY: number;
+	minX: number;
+	minY: number;
+}
+
+/** Lang: pt-BR - Projeta world space na viewport com câmera e zoom. Lang: en-US - Projects world space onto the viewport with camera and zoom. */
+export const worldToScreen = (point: Point, camera: Camera, viewportWidth: number, viewportHeight: number): Point => ({
+	x: (point.x - camera.x) * camera.zoom + viewportWidth / 2,
+	y: (point.y - camera.y) * camera.zoom + viewportHeight / 2,
+});
+
+/**
+ * Lang: pt-BR
+ * Mantém qualquer AABB que toque a viewport; somente drawables completamente externos são descartados.
+ *
+ * Lang: en-US
+ * Keeps any AABB touching the viewport; only fully external drawables are discarded.
+ */
+export const isAabbVisible = (bounds: ScreenAabb, viewportWidth: number, viewportHeight: number): boolean => !(
+	bounds.maxX < -CLIENT_CONFIG.culling.marginPixels
+	|| bounds.minX > viewportWidth + CLIENT_CONFIG.culling.marginPixels
+	|| bounds.maxY < -CLIENT_CONFIG.culling.marginPixels
+	|| bounds.minY > viewportHeight + CLIENT_CONFIG.culling.marginPixels
+);
+
 export interface RenderOrder extends GridPosition {
 	depth: number;
 	layer: number;
@@ -66,6 +92,8 @@ interface HighlightDrawable extends RenderOrder {
 	state: "hinted" | "path" | "hovered" | "invalid" | "selected";
 }
 
+export type HighlightState = HighlightDrawable["state"];
+
 type Drawable = HighlightDrawable | PlayerDrawable | TileDrawable;
 
 /**
@@ -84,6 +112,7 @@ export const compareRenderOrder = (a: RenderOrder, b: RenderOrder): number => a.
 	|| a.order - b.order
 	|| a.tieBreaker - b.tieBreaker;
 
+/** Lang: pt-BR - Materializa a chave determinística de ordenação. Lang: en-US - Materializes the deterministic render-order key. */
 export const getRenderableRenderOrder = (
 	gridPosition: GridPosition,
 	renderable: RenderableComponent,
@@ -95,6 +124,7 @@ export const getRenderableRenderOrder = (
 	tieBreaker,
 });
 
+/** Lang: pt-BR - Troca a célula de sorting somente após metade do step. Lang: en-US - Switches the sorting cell only after half a step. */
 export const getMovementSortingGrid = (
 	gridPosition: GridPosition,
 	movement: MovementComponent | undefined,
@@ -102,6 +132,7 @@ export const getMovementSortingGrid = (
 	? { column: movement.fromColumn, row: movement.fromRow }
 	: gridPosition;
 
+/** Lang: pt-BR - Coloca feedback imediatamente acima do ground. Lang: en-US - Places feedback immediately above ground. */
 export const getHighlightRenderOrder = (gridPosition: GridPosition, tieBreaker = 0): RenderOrder => ({
 	...gridPosition,
 	depth: gridPosition.row + gridPosition.column,
@@ -123,11 +154,13 @@ export const getTileVisualPosition = (gridPosition: GridPosition, layer: number)
 	return { x: position.x, y: position.y + getLayerVisualOffsetY(layer) };
 };
 
+/** Lang: pt-BR - Aplica offset estritamente visual ao sprite. Lang: en-US - Applies a strictly visual sprite offset. */
 export const applySpriteOffset = (basePosition: Point, sprite: Pick<SpriteComponent, "offsetX" | "offsetY">): Point => ({
 	x: basePosition.x + sprite.offsetX,
 	y: basePosition.y + sprite.offsetY,
 });
 
+/** Lang: pt-BR - Preserva a prioridade histórica entre seleção e hover. Lang: en-US - Preserves historical selection-versus-hover priority. */
 export const getTileHighlightState = (selected: boolean, hovered: boolean): "hovered" | "selected" | undefined => selected
 	? "selected"
 	: hovered ? "hovered" : undefined;
@@ -151,10 +184,23 @@ export const getTileFeedbackState = (
 			: path ? "path"
 				: hinted ? "hinted" : undefined;
 
+/** Lang: pt-BR - Resolve a cor configurada e a pulsação exclusiva do hint. Lang: en-US - Resolves configured color and hint-only pulse. */
+export const getHighlightFillStyle = (state: HighlightState, timestamp: number, walkHintAlpha: number): string => {
+	const interaction = CLIENT_CONFIG.interaction;
+	if (state === "selected") return interaction.selectedColor;
+	if (state === "invalid") return interaction.invalidHoverColor;
+	if (state === "hovered") return interaction.hoverColor;
+	if (state === "path") return interaction.pathPreviewColor;
+	const hintAlpha = (0.25 + (Math.sin(timestamp / 250) + 1) * 0.08) * walkHintAlpha;
+
+	return `rgba(${interaction.hintColor}, ${hintAlpha})`;
+};
+
+/** Lang: pt-BR - Constrói o diamante sobre o chão visual do Tile. Lang: en-US - Builds the diamond over the Tile's visual ground. */
 export const getHighlightDiamond = (worldPosition: Point): [Point, Point, Point, Point] => {
 	const centerY = worldPosition.y + TILE_VISUAL_GROUND_OFFSET_Y + TILE_FOOTPRINT_HEIGHT / 2;
-	const halfWidth = TILE_WIDTH / 2 - HIGHLIGHT_INSET_X;
-	const halfHeight = TILE_FOOTPRINT_HEIGHT / 2 - HIGHLIGHT_INSET_Y;
+	const halfWidth = TILE_WIDTH / 2;
+	const halfHeight = TILE_FOOTPRINT_HEIGHT / 2;
 
 	return [
 		{ x: worldPosition.x, y: centerY - halfHeight },
@@ -164,6 +210,7 @@ export const getHighlightDiamond = (worldPosition: Point): [Point, Point, Point,
 	];
 };
 
+/** Lang: pt-BR - Carrega textura e propaga falha de asset. Lang: en-US - Loads a texture and propagates asset failure. */
 const loadImage = (path: string): Promise<HTMLImageElement> => new Promise((resolve, reject) => {
 	const image = new Image();
 
@@ -172,6 +219,7 @@ const loadImage = (path: string): Promise<HTMLImageElement> => new Promise((reso
 	image.src = path;
 });
 
+/** Lang: pt-BR - Compõe, ordena, faz culling e desenha o frame ECS. Lang: en-US - Composes, orders, culls, and draws the ECS frame. */
 export class RenderSystem {
 	private constructor(
 		private readonly surface: CanvasSurface,
@@ -179,6 +227,7 @@ export class RenderSystem {
 		private readonly playerTextures: ReadonlyMap<string, HTMLImageElement>,
 	) {}
 
+	/** Lang: pt-BR - Pré-carrega somente os assets exigidos pelo runtime. Lang: en-US - Preloads only assets required by the runtime. */
 	static async create(surface: CanvasSurface, tileIds: readonly number[]): Promise<RenderSystem> {
 		const tileTextures = new Map<number, HTMLImageElement>();
 		const playerTextures = new Map<string, HTMLImageElement>();
@@ -195,6 +244,7 @@ export class RenderSystem {
 		return new RenderSystem(surface, tileTextures, playerTextures);
 	}
 
+	/** Lang: pt-BR - Desenha um frame sem mutar identidade ou posição lógica. Lang: en-US - Draws one frame without mutating identity or logical position. */
 	render(world: World, camera: Camera, timestamp = 0): void {
 		const { context, element } = this.surface;
 		const drawables: Drawable[] = [];
@@ -251,10 +301,10 @@ export class RenderSystem {
 		context.clearRect(0, 0, element.width, element.height);
 		context.imageSmoothingEnabled = false;
 
-		const toScreen = (worldX: number, worldY: number) => ({
-			x: (worldX - camera.x) * camera.zoom + element.width / 2,
-			y: (worldY - camera.y) * camera.zoom + element.height / 2,
-		});
+		/** Lang: pt-BR - Vincula projeções do frame à viewport atual. Lang: en-US - Binds frame projections to the current viewport. */
+		const toScreen = (worldX: number, worldY: number) => worldToScreen(
+			{ x: worldX, y: worldY }, camera, element.width, element.height,
+		);
 
 		for (const drawable of drawables) {
 			if (drawable.kind === "tile") {
@@ -263,13 +313,18 @@ export class RenderSystem {
 				if (!texture) continue;
 				const worldPosition = getTileVisualPosition(drawable, drawable.layer);
 				const screen = toScreen(worldPosition.x, worldPosition.y);
-				context.drawImage(texture, Math.round(screen.x - TILE_WIDTH * camera.zoom / 2), Math.round(screen.y), TILE_WIDTH * camera.zoom, texture.naturalHeight * camera.zoom);
+				const minX = screen.x - TILE_WIDTH * camera.zoom / 2;
+				const width = TILE_WIDTH * camera.zoom;
+				const height = texture.naturalHeight * camera.zoom;
+				if (!isAabbVisible({ maxX: minX + width, maxY: screen.y + height, minX, minY: screen.y }, element.width, element.height)) continue;
+				context.drawImage(texture, Math.round(minX), Math.round(screen.y), width, height);
 				continue;
 			}
 
 			if (drawable.kind === "highlight") {
 				const worldPosition = getTileVisualPosition(drawable, drawable.layer);
 				const [top, right, bottom, left] = getHighlightDiamond(worldPosition).map(({ x, y }) => toScreen(x, y));
+				if (!isAabbVisible({ maxX: right.x, maxY: bottom.y, minX: left.x, minY: top.y }, element.width, element.height)) continue;
 				context.save();
 				context.beginPath();
 				context.moveTo(top.x, top.y);
@@ -277,16 +332,11 @@ export class RenderSystem {
 				context.lineTo(bottom.x, bottom.y);
 				context.lineTo(left.x, left.y);
 				context.closePath();
-				const hintAlpha = (0.25 + (Math.sin(timestamp / 250) + 1) * 0.08) * world.walkHintAlpha;
-				context.fillStyle = drawable.state === "selected"
-					? "rgba(20, 255, 161, 0.7)"
-					: drawable.state === "invalid" ? "rgba(225, 48, 48, 0.72)"
-						: drawable.state === "hovered" ? "rgba(15, 198, 239, 0.68)"
-							: drawable.state === "path" ? "rgba(49, 170, 238, 0.42)" : `rgba(20, 255, 161, ${hintAlpha})`;
-				context.strokeStyle = drawable.state === "selected" ? "transparent" : drawable.state === "hovered" ? "transparent" : "transparent";
-				context.lineWidth = Math.max(1.5, camera.zoom * 1.5);
+				const hintAlpha = drawable.state === "hinted"
+					? Math.min(world.walkHintAlpha, world.hintedTileAlphas.get(drawable.entity) ?? 0)
+					: world.walkHintAlpha;
+				context.fillStyle = getHighlightFillStyle(drawable.state, timestamp, hintAlpha);
 				context.fill();
-				context.stroke();
 				context.restore();
 				continue;
 			}
@@ -305,6 +355,14 @@ export class RenderSystem {
 				x: feet.x - sprite.frameWidth * camera.zoom / 2,
 				y: feet.y - sprite.frameHeight * camera.zoom,
 			}, sprite);
+			const width = sprite.frameWidth * camera.zoom;
+			const height = sprite.frameHeight * camera.zoom;
+			if (!isAabbVisible({
+				maxX: drawPosition.x + width,
+				maxY: drawPosition.y + height,
+				minX: drawPosition.x,
+				minY: drawPosition.y,
+			}, element.width, element.height)) continue;
 
 			context.drawImage(
 				texture,
@@ -314,8 +372,8 @@ export class RenderSystem {
 				sprite.frameHeight,
 				Math.round(drawPosition.x),
 				Math.round(drawPosition.y),
-				sprite.frameWidth * camera.zoom,
-				sprite.frameHeight * camera.zoom,
+				width,
+				height,
 			);
 		}
 	}

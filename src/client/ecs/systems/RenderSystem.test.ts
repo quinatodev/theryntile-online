@@ -2,20 +2,32 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { type MovementComponent } from "../Components.js";
+import { World } from "../World.js";
+import { CLIENT_CONFIG } from "../../game/ClientConfig.js";
 import {
 	applySpriteOffset,
 	compareRenderOrder,
 	getHighlightDiamond,
+	getHighlightFillStyle,
 	getHighlightRenderOrder,
 	getMovementSortingGrid,
 	getTileFeedbackState,
-	getTileHighlightState,
 	getTileVisualPosition,
+	isAabbVisible,
+	RenderSystem,
 	type RenderOrder,
+	worldToScreen,
 } from "./RenderSystem.js";
 
 interface NamedRenderOrder extends RenderOrder { name: string; }
 
+/**
+ * Lang: pt-BR
+ * Ordena fixtures nomeadas pela mesma chave pública do renderer para tornar a precedência observável.
+ *
+ * Lang: en-US
+ * Sorts named fixtures through the renderer's public key so precedence remains observable.
+ */
 const orderedNames = (items: NamedRenderOrder[]) => items.sort(compareRenderOrder).map(({ name }) => name);
 
 test("grid order takes precedence over layer and order", () => {
@@ -37,6 +49,7 @@ test("order breaks ties only inside the same layer of the same grid", () => {
 });
 
 test("isometric grids stay grouped before their local layers are sorted", () => {
+	/** Lang: pt-BR - Cria uma chave nomeada para observar a ordenação. Lang: en-US - Creates a named key to observe ordering. */
 	const item = (row: number, column: number, layer: number, order: number, name: string): NamedRenderOrder => ({
 		column, depth: row + column, layer, name, order, row, tieBreaker: 0,
 	});
@@ -92,31 +105,18 @@ test("Hover and Selected highlights both use the same local order above the Tile
 	assert.deepEqual(getHighlightRenderOrder(gridPosition), { ...gridPosition, depth: 7, layer: 0, order: 1, tieBreaker: 0 });
 });
 
-test("Selected has visual precedence and produces one highlight state", () => {
-	assert.equal(getTileHighlightState(false, true), "hovered");
-	assert.equal(getTileHighlightState(true, false), "selected");
-	assert.equal(getTileHighlightState(true, true), "selected");
-	assert.equal(getTileHighlightState(false, false), undefined);
-});
-
-test("highlight diamond matches the visual ground footprint with its 8px vertical offset and 2x1 inset", () => {
+test("highlight diamond matches the complete visual ground footprint with its 8px vertical offset", () => {
 	assert.deepEqual(getHighlightDiamond({ x: 16, y: 24 }), [
-		{ x: 16, y: 33 },
-		{ x: 30, y: 40 },
-		{ x: 16, y: 47 },
-		{ x: 2, y: 40 },
+		{ x: 16, y: 32 },
+		{ x: 32, y: 40 },
+		{ x: 16, y: 48 },
+		{ x: 0, y: 40 },
 	]);
 });
 
 test("sprite offsets translate only the final drawing position", () => {
 	assert.deepEqual(applySpriteOffset({ x: 100, y: 50 }, { offsetX: 3, offsetY: -4 }), { x: 103, y: 46 });
 	assert.deepEqual(applySpriteOffset({ x: 100, y: 50 }, { offsetX: 0, offsetY: 0 }), { x: 100, y: 50 });
-});
-
-test("sprite offsets do not participate in Player sorting", () => {
-	const renderOrder = { column: 2, depth: 3, layer: 2, order: 7, row: 1, tieBreaker: 1 };
-	applySpriteOffset({ x: 100, y: 50 }, { offsetX: 999, offsetY: -999 });
-	assert.deepEqual(renderOrder, { column: 2, depth: 3, layer: 2, order: 7, row: 1, tieBreaker: 1 });
 });
 
 test("Player priority wins its own layer but never crosses an upper layer", () => {
@@ -145,6 +145,105 @@ test("Tile layer height moves each visual origin upward by 8px", () => {
 	assert.deepEqual(getTileVisualPosition({ column: 2, row: 2 }, 0), { x: 0, y: 32 });
 	assert.deepEqual(getTileVisualPosition({ column: 2, row: 2 }, 1), { x: 0, y: 24 });
 	assert.deepEqual(getTileVisualPosition({ column: 2, row: 2 }, 2), { x: 0, y: 16 });
+});
+
+test("viewport culling keeps inside, partial, and touching AABBs", () => {
+	const margin = CLIENT_CONFIG.culling.marginPixels;
+	assert.equal(isAabbVisible({ maxX: 20, maxY: 20, minX: 10, minY: 10 }, 100, 80), true);
+	assert.equal(isAabbVisible({ maxX: 5, maxY: 20, minX: -5, minY: 10 }, 100, 80), true);
+	assert.equal(isAabbVisible({ maxX: -margin, maxY: 20, minX: -10, minY: 10 }, 100, 80), true);
+	assert.equal(isAabbVisible({ maxX: 110, maxY: 20, minX: 100 + margin, minY: 10 }, 100, 80), true);
+});
+
+test("viewport culling rejects AABBs fully outside each edge", () => {
+	const outside = CLIENT_CONFIG.culling.marginPixels + 1;
+	assert.equal(isAabbVisible({ maxX: -outside, maxY: 20, minX: -10, minY: 10 }, 100, 80), false);
+	assert.equal(isAabbVisible({ maxX: 111, maxY: 20, minX: 100 + outside, minY: 10 }, 100, 80), false);
+	assert.equal(isAabbVisible({ maxX: 20, maxY: -outside, minX: 10, minY: -10 }, 100, 80), false);
+	assert.equal(isAabbVisible({ maxX: 20, maxY: 91, minX: 10, minY: 80 + outside }, 100, 80), false);
+});
+
+test("highlight fill styles come from client interaction configuration", () => {
+	assert.equal(getHighlightFillStyle("selected", 0, 1), CLIENT_CONFIG.interaction.selectedColor);
+	assert.equal(getHighlightFillStyle("invalid", 0, 1), CLIENT_CONFIG.interaction.invalidHoverColor);
+	assert.equal(getHighlightFillStyle("hovered", 0, 1), CLIENT_CONFIG.interaction.hoverColor);
+	assert.equal(getHighlightFillStyle("path", 0, 1), CLIENT_CONFIG.interaction.pathPreviewColor);
+	assert.equal(getHighlightFillStyle("hinted", 0, 1), `rgba(${CLIENT_CONFIG.interaction.hintColor}, 0.33)`);
+});
+
+test("highlight renderer fills the Tile overlay without drawing an outline", () => {
+	let fills = 0;
+	let strokes = 0;
+	const context = {
+		beginPath() {}, clearRect() {}, closePath() {}, drawImage() {}, fill() { fills += 1; }, fillStyle: "", imageSmoothingEnabled: true,
+		lineTo() {}, moveTo() {}, restore() {}, save() {}, stroke() { strokes += 1; },
+	} as unknown as CanvasRenderingContext2D;
+	const renderer = Reflect.construct(RenderSystem, [{ context, element: { height: 80, width: 100 } }, new Map([[1, { naturalHeight: 16 }]]), new Map()]) as RenderSystem;
+	const world = new World();
+	const tile = world.createEntity();
+	world.tiles.set(tile, { textureId: 1 });
+	world.gridPositions.set(tile, { column: 0, row: 0 });
+	world.renderables.set(tile, { layer: 0, order: 0 });
+	world.hoveredTiles.add(tile);
+	renderer.render(world, { x: 0, y: 0, zoom: 1 });
+	assert.equal(fills, 1);
+	assert.equal(strokes, 0);
+});
+
+test("world projection derives viewport position from Camera zoom and logical canvas size", () => {
+	assert.deepEqual(worldToScreen({ x: 10, y: 5 }, { x: 0, y: 0, zoom: 2 }, 640, 360), { x: 340, y: 190 });
+	assert.deepEqual(worldToScreen({ x: 10, y: 5 }, { x: 0, y: 0, zoom: 5 }, 640, 360), { x: 370, y: 205 });
+	assert.deepEqual(worldToScreen({ x: 10, y: 5 }, { x: 10, y: 5, zoom: 5 }, 800, 600), { x: 400, y: 300 });
+});
+
+test("sprite offsets participate in visual bounds without mutating Player entities", () => {
+	const world = new World();
+	const player = world.createEntity();
+	world.players.set(player, { id: 7, name: "Player" });
+	const position = applySpriteOffset({ x: -40, y: 10 }, { offsetX: 12, offsetY: 3 });
+	assert.equal(isAabbVisible({ maxX: position.x + 32, maxY: position.y + 48, minX: position.x, minY: position.y }, 100, 80), true);
+	assert.equal(world.entities.has(player), true);
+	assert.equal(world.players.has(player), true);
+});
+
+test("culling removes only invisible items and preserves visible render ordering", () => {
+	const outsideLeft = -CLIENT_CONFIG.culling.marginPixels - 1;
+	const items = [
+		{ bounds: { maxX: 20, maxY: 20, minX: 10, minY: 10 }, column: 0, depth: 2, layer: 0, name: "last", order: 0, row: 2, tieBreaker: 3 },
+		{ bounds: { maxX: outsideLeft, maxY: 20, minX: outsideLeft - 10, minY: 10 }, column: 1, depth: 1, layer: 0, name: "hidden", order: 0, row: 0, tieBreaker: 2 },
+		{ bounds: { maxX: 20, maxY: 20, minX: 10, minY: 10 }, column: 0, depth: 0, layer: 0, name: "first", order: 0, row: 0, tieBreaker: 1 },
+	];
+	const visible = items.filter(({ bounds }) => isAabbVisible(bounds, 100, 80));
+	assert.deepEqual(orderedNames(visible), ["first", "last"]);
+});
+
+test("RenderSystem skips offscreen draw calls while retaining partial and inside Tile entities", () => {
+	const drawImages: unknown[][] = [];
+	const context = {
+		clearRect() {},
+		drawImage(...args: unknown[]) { drawImages.push(args); },
+		imageSmoothingEnabled: true,
+	} as unknown as CanvasRenderingContext2D;
+	const element = { height: 80, width: 100 } as HTMLCanvasElement;
+	const textures = new Map<number, HTMLImageElement>([1, 201, 301].map((tileId) => [
+		tileId,
+		{ naturalHeight: 32, tileId } as unknown as HTMLImageElement,
+	]));
+	const renderer = Reflect.construct(RenderSystem, [{ context, element }, textures, new Map()]) as RenderSystem;
+	const world = new World();
+	for (const [row, textureId] of [[0, 1], [3, 201], [100, 301]] as const) {
+		const entity = world.createEntity();
+		world.tiles.set(entity, { textureId });
+		world.gridPositions.set(entity, { column: 0, row });
+		world.renderables.set(entity, { layer: 0, order: 0 });
+	}
+
+	renderer.render(world, { x: 0, y: 0, zoom: 1 });
+
+	assert.equal(drawImages.length, 2);
+	assert.deepEqual(drawImages.map(([texture]) => (texture as { tileId: number }).tileId), [1, 201]);
+	assert.equal(world.tiles.size, 3);
+	assert.equal(world.entities.size, 3);
 });
 
 test("feedback precedence remains Selected, Hover, Hint, Tile", () => {

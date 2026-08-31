@@ -44,7 +44,7 @@ const viewsRoot = developmentSource ? path.join(sourceRoot, "views") : path.join
 // Lang: en-US
 // These process-local structures serialize finalization per account and identify the newest concurrent attempt.
 const accountLoginQueues = new Map<number, Promise<void>>();
-const accountLoginAttempts = new Map<number, number>();
+const loginRequestAttempts = new Map<string, number>();
 
 /**
  * Lang: pt-BR
@@ -58,6 +58,7 @@ const accountLoginAttempts = new Map<number, number>();
 const waitForAccountLogin = async (accountId: number): Promise<() => void> => {
 	const previous = accountLoginQueues.get(accountId) ?? Promise.resolve();
 
+	/** Lang: pt-BR - Referência antecipada para liberar a fila da account. Lang: en-US - Forward reference for releasing the account queue. */
 	let releaseQueue = () => {};
 
 	const current = new Promise<void>((resolve) => { releaseQueue = resolve; });
@@ -124,16 +125,18 @@ export async function createServer(): Promise<FastifyInstance> {
 		if (!login.success) {
 			return reply.code(400).send({ error: "INVALID_REQUEST" });
 		}
+		// Lang: pt-BR
+		// A geração nasce antes do Argon2 para que uma requisição concorrente mais nova possa superar a anterior.
+		// Lang: en-US
+		// The generation starts before Argon2 so a newer concurrent request can supersede the earlier one.
+		const attempt = (loginRequestAttempts.get(login.data.username) ?? 0) + 1;
+		loginRequestAttempts.set(login.data.username, attempt);
 
 		try {
 			const result = await authenticate(login.data.username, login.data.password);
 			if (!result) {
 				return reply.code(401).send({ error: "INVALID_CREDENTIALS" });
 			}
-
-			const attempt = (accountLoginAttempts.get(result.player.id) ?? 0) + 1;
-
-			accountLoginAttempts.set(result.player.id, attempt);
 
 			const releaseLogin = await waitForAccountLogin(result.player.id);
 
@@ -144,11 +147,11 @@ export async function createServer(): Promise<FastifyInstance> {
 				// Uma tentativa superada retorna 409 sem instalar seu cookie obsoleto.
 				// Lang: en-US
 				// A superseded attempt returns 409 without installing its obsolete cookie.
-				if (accountLoginAttempts.get(result.player.id) !== attempt || !await isCurrentSession(result.player.id, session.sessionId)) {
+				if (loginRequestAttempts.get(login.data.username) !== attempt || !await isCurrentSession(result.player.id, session.sessionId)) {
 					return reply.code(409).send({ error: "SESSION_REPLACED" });
 				}
 
-				accountLoginAttempts.delete(result.player.id);
+				loginRequestAttempts.delete(login.data.username);
 
 				// Lang: pt-BR
 				// Sockets de sids antigos são retirados antes que o cookie da sessão vencedora seja exposto.

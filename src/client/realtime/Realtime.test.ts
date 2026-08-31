@@ -36,6 +36,12 @@ class FakeWebSocket {
 		for (const listener of this.listeners.get(type) ?? []) listener(new Event(type));
 	}
 
+	emitMessage(message: object): void {
+		for (const listener of this.listeners.get("message") ?? []) {
+			listener({ data: JSON.stringify(message) } as MessageEvent<string>);
+		}
+	}
+
 	send(): void {}
 }
 
@@ -119,6 +125,48 @@ test("an enabled realtime reconnects after session validation", async () => {
 		realtime.close();
 	} finally {
 		globalThis.fetch = originalFetch;
+		globalThis.WebSocket = originalWebSocket;
+		globalThis.window = originalWindow;
+	}
+});
+
+test("Realtime dispatches each validated multiplayer message to only its owning callback", () => {
+	const originalWebSocket = globalThis.WebSocket;
+	const originalWindow = globalThis.window;
+	const dispatched: string[] = [];
+	try {
+		FakeWebSocket.instances = [];
+		globalThis.window = {
+			clearTimeout() {},
+			location: { host: "localhost", protocol: "http:" },
+			setTimeout() { return 1; },
+		} as unknown as Window & typeof globalThis;
+		globalThis.WebSocket = FakeWebSocket as unknown as typeof WebSocket;
+		const realtime = createRealtime({
+			...callbacks,
+			onChannelPopulation: () => dispatched.push("population"),
+			onEnterChannelRejected: () => dispatched.push("rejected"),
+			onEnterChannelSuccess: () => dispatched.push("entered"),
+			onPlayerJoined: () => dispatched.push("joined"),
+			onPlayerLeft: () => dispatched.push("left"),
+			onPlayerMoved: () => dispatched.push("moved"),
+			onSessionReplaced: () => dispatched.push("replaced"),
+		});
+		realtime.connect();
+		const socket = FakeWebSocket.instances[0] as FakeWebSocket;
+		for (const message of [
+			{ type: "CHANNEL_POPULATION", channelId: 1, population: 2 },
+			{ type: "ENTER_CHANNEL_REJECTED", reason: "CHANNEL_FULL" },
+			{ type: "PLAYER_JOINED", player: { id: 2, name: "Remote", row: 1, column: 1 } },
+			{ type: "PLAYER_LEFT", playerId: 2 },
+			{ type: "PLAYER_MOVED", playerId: 2, fromRow: 1, fromColumn: 1, row: 1, column: 2, finalStep: true },
+			{ type: "SESSION_REPLACED" },
+			{ type: "ENTER_CHANNEL_SUCCESS", channelId: 1, player: { id: 1, name: "Local", row: 1, column: 1 }, players: [] },
+		]) socket.emitMessage(message);
+
+		assert.deepEqual(dispatched, ["population", "rejected", "joined", "left", "moved", "replaced", "entered"]);
+		realtime.close();
+	} finally {
 		globalThis.WebSocket = originalWebSocket;
 		globalThis.window = originalWindow;
 	}

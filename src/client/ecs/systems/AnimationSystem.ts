@@ -11,7 +11,9 @@ export const ANIMATION_FRAME_COUNT = 8;
 export const IDLE_FRAMES_PER_SECOND = 8;
 export const WALK_FRAMES_PER_SECOND = 16;
 
+/** Lang: pt-BR - Atualiza frames de animação pela timestamp do runtime. Lang: en-US - Updates animation frames from the runtime timestamp. */
 export class AnimationSystem {
+	/** Lang: pt-BR - Avança todas as animações com uma base temporal comum. Lang: en-US - Advances all animations with one shared time base. */
 	update(world: World, timestamp: number): void {
 		for (const animation of world.animations.values()) {
 			animation.startedAt ??= timestamp;

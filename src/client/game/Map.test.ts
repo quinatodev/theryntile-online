@@ -5,6 +5,7 @@ import { getMapBounds, getMapLayers, getMapTileIds, isCellWalkable } from "./Map
 import { findPath, getReachableCells, isValidDestination } from "./Navigation.js";
 import { parseGameBootstrapConfig } from "./MapConfig.js";
 
+/** Lang: pt-BR - Cria a forma serializada do bootstrap Newbie. Lang: en-US - Creates the serialized Newbie bootstrap shape. */
 export const createSerializedNewbiePayload = () => ({
 	map: {
 		0: Array.from({ length: 11 }, () => Array<number>(11).fill(1)),

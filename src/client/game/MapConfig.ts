@@ -9,8 +9,10 @@ export interface GameRuntimeConfig {
 	zoomPreference: number;
 }
 
+/** Lang: pt-BR - Restringe campos numéricos do payload a inteiros seguros. Lang: en-US - Narrows numeric payload fields to safe integers. */
 const isInteger = (value: unknown): value is number => Number.isSafeInteger(value);
 
+/** Lang: pt-BR - Valida definições de Tile vindas do bootstrap. Lang: en-US - Validates Tile definitions received in bootstrap. */
 export function parseTileDefinitions(value: unknown): RuntimeTileDefinitions {
 	if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Invalid game configuration: tileDefinitions must be an object.");
 	const definitions: Record<number, boolean> = {};

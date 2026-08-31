@@ -125,12 +125,15 @@ export async function startGame(
 	let disposed = false;
 	let started = false;
 	let fatalHandled = false;
+	/** Lang: pt-BR - Referência antecipada para cleanup fatal idempotente. Lang: en-US - Forward reference for idempotent fatal cleanup. */
 	let disposeRuntime = () => {};
 	let zoomSaveTimer: number | null = null;
 	let lastSavedZoom = config.zoomPreference;
 	const pointer: PointerPosition = { canvasX: 0, canvasY: 0, inside: false };
 
+	/** Lang: pt-BR - Renderiza somente um runtime iniciado e vivo. Lang: en-US - Renders only a started, live runtime. */
 	const render = () => { if (started && !disposed) renderSystem.render(world, camera, performance.now()); };
+	/** Lang: pt-BR - Executa um frame e encerra atomicamente após falha fatal. Lang: en-US - Runs one frame and shuts down atomically after a fatal failure. */
 	const frame = (timestamp: number) => {
 		animationFrame = null;
 		if (!started || disposed) return;
@@ -151,10 +154,13 @@ export async function startGame(
 		if (!completed) return;
 		animationFrame = window.requestAnimationFrame(frame);
 	};
+	/** Lang: pt-BR - Garante no máximo uma RAF pendente. Lang: en-US - Ensures at most one pending RAF. */
 	const ensureAnimationFrame = () => {
 		if (started && !disposed && animationFrame === null) animationFrame = window.requestAnimationFrame(frame);
 	};
+	/** Lang: pt-BR - Sincroniza canvas e redesenha a viewport. Lang: en-US - Synchronizes canvas and redraws the viewport. */
 	const resizeAndRender = () => { resizeCanvasToViewport(surface); render(); };
+	/** Lang: pt-BR - Aplica zoom limitado e persiste-o com debounce. Lang: en-US - Applies bounded zoom and persists it with debounce. */
 	const zoomAndRender = (event: WheelEvent) => {
 		event.preventDefault();
 		const previous = camera.zoom;
@@ -171,17 +177,20 @@ export async function startGame(
 		}
 		render();
 	};
+	/** Lang: pt-BR - Converte coordenadas CSS para coordenadas lógicas do canvas. Lang: en-US - Converts CSS coordinates into logical canvas coordinates. */
 	const updatePointer = (event: PointerEvent | MouseEvent) => {
 		const bounds = canvas.getBoundingClientRect();
 		pointer.canvasX = (event.clientX - bounds.left) * canvas.width / bounds.width;
 		pointer.canvasY = (event.clientY - bounds.top) * canvas.height / bounds.height;
 		pointer.inside = true;
 	};
+	/** Lang: pt-BR - Localiza exclusivamente o ground Tile da célula. Lang: en-US - Locates only the cell's ground Tile. */
 	const tileAt = (row: number, column: number) => [...world.tiles.keys()].find((entity) => {
 		const grid = world.gridPositions.get(entity);
 
 		return grid?.row === row && grid.column === column && world.renderables.get(entity)?.layer === 0;
 	});
+	/** Lang: pt-BR - Recalcula hover e preview sem enviar intenção. Lang: en-US - Recomputes hover and preview without sending intent. */
 	const updateHoverAndPath = () => {
 		world.pathPreviewTiles.clear();
 		world.invalidHoveredTiles.clear();
@@ -204,6 +213,7 @@ export async function startGame(
 
 		return hoveredEntity;
 	};
+	/** Lang: pt-BR - Limpa feedback transitório ao sair do canvas. Lang: en-US - Clears transient feedback when leaving the canvas. */
 	const leaveCanvas = () => {
 		pointer.inside = false;
 		world.hoveredTiles.clear();
@@ -211,6 +221,7 @@ export async function startGame(
 		world.pathPreviewTiles.clear();
 		render();
 	};
+	/** Lang: pt-BR - Envia MOVE somente após validar o destino. Lang: en-US - Sends MOVE only after validating the target. */
 	const selectClickedTile = (event: MouseEvent) => {
 		updatePointer(event);
 		if (world.movingPlayers.has(localPlayerEntity)) return;
@@ -231,6 +242,7 @@ export async function startGame(
 		walkHintSystem.reset(world);
 		render();
 	};
+	/** Lang: pt-BR - Remove listeners, timers, RAF e estado ECS. Lang: en-US - Removes listeners, timers, RAF, and ECS state. */
 	disposeRuntime = () => {
 		if (disposed) return;
 		disposed = true;
@@ -249,9 +261,11 @@ export async function startGame(
 	};
 
 	return {
+		/** Lang: pt-BR - Expõe o cleanup idempotente. Lang: en-US - Exposes idempotent cleanup. */
 		dispose() {
 			disposeRuntime();
 		},
+		/** Lang: pt-BR - Cria ou substitui a Entity remota. Lang: en-US - Creates or replaces the remote Entity. */
 		playerJoined(player) {
 			if (disposed) return;
 			const previousEntity = playerEntities.get(player.id);
@@ -259,6 +273,7 @@ export async function startGame(
 			playerEntities.set(player.id, createPlayerEntity(world, player, false));
 			render();
 		},
+		/** Lang: pt-BR - Remove somente o Player remoto indicado. Lang: en-US - Removes only the indicated remote Player. */
 		playerLeft(playerId) {
 			if (disposed || playerId === localPlayer.id) return;
 			const entity = playerEntities.get(playerId);
@@ -267,6 +282,7 @@ export async function startGame(
 			world.removeEntity(entity);
 			render();
 		},
+		/** Lang: pt-BR - Enfileira apenas steps autoritativos válidos. Lang: en-US - Queues only valid authoritative steps. */
 		playerMoved(message) {
 			if (disposed) return;
 			if (!isCellWalkable(config.map, config.tileDefinitions, message.row, message.column)) return;
@@ -275,6 +291,7 @@ export async function startGame(
 			enqueueMovementStep(world, entity, message);
 			ensureAnimationFrame();
 		},
+		/** Lang: pt-BR - Instala lifecycle e inicia uma RAF. Lang: en-US - Installs lifecycle and starts one RAF. */
 		start() {
 			if (disposed || started) return;
 			started = true;

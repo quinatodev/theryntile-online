@@ -60,6 +60,7 @@ const MOVEMENT_STEP_MS = 500;
 const activeRoutes = new RouteState<ChannelSocket>();
 const claimInitialization = createInitializationGuard();
 
+/** Lang: pt-BR - Limita o snapshot público aos campos de presença. Lang: en-US - Restricts the public snapshot to presence fields. */
 const serializePlayer = ({ id, name, row, column }: ChannelPlayer) => ({ id, name, row, column });
 
 /**
@@ -79,6 +80,7 @@ const sendToChannel = (channel: RuntimeChannel, message: object, except?: Channe
 	}
 };
 
+/** Lang: pt-BR - Projeta o estado público e sua população atual. Lang: en-US - Projects public state and current population. */
 const channelState = (channel: RuntimeChannel) => ({
 	id: channel.id,
 	name: channel.name,
@@ -86,6 +88,7 @@ const channelState = (channel: RuntimeChannel) => ({
 	capacity: channel.capacity,
 });
 
+/** Lang: pt-BR - Responde a rejeição de admission sem mutar presença. Lang: en-US - Replies to admission rejection without mutating presence. */
 const rejectEntry = (socket: ChannelSocket, reason: RejectionReason) => {
 	socket.send(JSON.stringify({ type: "ENTER_CHANNEL_REJECTED", reason }));
 };

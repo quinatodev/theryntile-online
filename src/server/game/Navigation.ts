@@ -16,7 +16,9 @@ const NEIGHBOURS = [
 	{ column: 1, row: 0 }, { column: 0, row: 1 },
 ] as const;
 
+/** Lang: pt-BR - Produz chave estável de posição autoritativa. Lang: en-US - Produces a stable authoritative-position key. */
 const keyOf = ({ row, column }: SpawnPosition) => `${row}:${column}`;
+/** Lang: pt-BR - Calcula a heurística Manhattan admissível. Lang: en-US - Computes the admissible Manhattan heuristic. */
 const heuristic = (a: SpawnPosition, b: SpawnPosition) => Math.abs(a.row - b.row) + Math.abs(a.column - b.column);
 
 /**

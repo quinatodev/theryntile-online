@@ -47,6 +47,19 @@ test("player moved accepts an authoritative adjacent transition", () => {
 	});
 });
 
+test("multiplayer lifecycle messages retain their validated observable payloads", () => {
+	const messages = [
+		{ type: "CHANNEL_POPULATION", channelId: 1, population: 7 },
+		{ type: "ENTER_CHANNEL_SUCCESS", channelId: 1, player: { id: 1, name: "Local", row: 2, column: 3 }, players: [{ id: 2, name: "Remote", row: 3, column: 3 }] },
+		{ type: "ENTER_CHANNEL_REJECTED", reason: "CHANNEL_FULL" },
+		{ type: "PLAYER_JOINED", player: { id: 2, name: "Remote", row: 3, column: 3 } },
+		{ type: "PLAYER_LEFT", playerId: 2 },
+		{ type: "SESSION_REPLACED" },
+	] as const;
+	for (const message of messages) assert.deepEqual(parseRealtimeMessage(JSON.stringify(message)), message);
+	assert.equal(parseRealtimeMessage("not json"), null);
+});
+
 for (const message of [
 	{ type: "PLAYER_MOVED", playerId: 0, fromRow: 2, fromColumn: 2, row: 2, column: 3, finalStep: true },
 	{ type: "PLAYER_MOVED", playerId: 1, fromRow: 2, fromColumn: 2, row: 3, column: 3, finalStep: true },

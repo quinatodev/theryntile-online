@@ -17,7 +17,9 @@ interface ResonseServerConfig {
 	readonly host: string;
 }
 
+/** Lang: pt-BR - Resolve host e porta validados com fallback. Lang: en-US - Resolves validated host and port with fallback. */
 function ServerConfig(params: ParamsServerConfig): ResonseServerConfig {
+	/** Lang: pt-BR - Lê uma porta HTTP válida. Lang: en-US - Reads a valid HTTP port. */
 	const getPortFromEnv = () => {
 		const portFromEnv = Number(process.env.PORT_HTTP);
 		if (Number.isSafeInteger(portFromEnv) && portFromEnv >= 1 && portFromEnv <= 65_535) {
@@ -30,6 +32,7 @@ function ServerConfig(params: ParamsServerConfig): ResonseServerConfig {
 		return params.defaultPort;
 	};
 
+	/** Lang: pt-BR - Lê um host HTTP não vazio. Lang: en-US - Reads a non-empty HTTP host. */
 	const getHostFromEnv = () => {
 		const hostFromEnv = process.env.HOST_HTTP;
 		if (hostFromEnv) {

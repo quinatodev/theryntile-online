@@ -5,6 +5,7 @@ import { HoverSystem } from "./HoverSystem.js";
 import { SelectSystem } from "./SelectSystem.js";
 import { WalkHintSystem } from "./WalkHintSystem.js";
 import { World } from "../World.js";
+import { CLIENT_CONFIG } from "../../game/ClientConfig.js";
 
 const TEST_MAP = {
 	0: Array.from({ length: 11 }, () => Array<number>(11).fill(1)),
@@ -14,6 +15,7 @@ const TEST_MAP = {
 };
 const TEST_TILE_DEFINITIONS = { 1: true, 101: false };
 
+/** Lang: pt-BR - Constrói World mínimo com Tiles para interação. Lang: en-US - Builds a minimal Tile World for interaction. */
 const createTileWorld = () => {
 	const world = new World();
 	const first = world.createEntity();
@@ -74,6 +76,23 @@ test("SelectSystem keeps exactly one selected Tile independently from hover", ()
 	assert.deepEqual([...world.selectedTiles], [second]);
 });
 
+test("SelectSystem preserves the current destination while route, path, or runtime limit rejects a new one", () => {
+	const { first, second, world } = createTileWorld();
+	const system = new SelectSystem();
+	const maxSteps = 5;
+	assert.equal(system.select(world, TEST_MAP, TEST_TILE_DEFINITIONS, first, 1, maxSteps), first);
+	assert.equal(system.select(world, TEST_MAP, TEST_TILE_DEFINITIONS, second, undefined, maxSteps), undefined);
+	assert.equal(system.select(world, TEST_MAP, TEST_TILE_DEFINITIONS, second, maxSteps + 1, maxSteps), undefined);
+	assert.equal(system.select(world, TEST_MAP, TEST_TILE_DEFINITIONS, second, 1, maxSteps, true), undefined);
+	assert.deepEqual([...world.selectedTiles], [first]);
+
+	const player = world.createEntity();
+	world.players.set(player, { id: 1, name: "Occupant" });
+	world.gridPositions.set(player, { column: 1, row: 0 });
+	assert.equal(system.select(world, TEST_MAP, TEST_TILE_DEFINITIONS, second, 1, maxSteps), second);
+	assert.deepEqual([...world.selectedTiles], [second]);
+});
+
 test("blocked multi-layer cells have no Hover click-through to their ground Tile", () => {
 	const world = new World();
 	let ground: number | undefined;
@@ -90,7 +109,7 @@ test("blocked multi-layer cells have no Hover click-through to their ground Tile
 	assert.equal(world.selectedTiles.size, 0);
 });
 
-test("WalkHintSystem waits 2s, excludes the current cell, and resets during movement", () => {
+test("WalkHintSystem uses configured timing, opacity, and resets during movement", () => {
 	const world = new World();
 	for (let column = 0; column <= 5; column += 1) {
 		const tile = world.createEntity();
@@ -102,12 +121,71 @@ test("WalkHintSystem waits 2s, excludes the current cell, and resets during move
 	world.gridPositions.set(player, { column: 0, row: 0 });
 	world.localPlayers.add(player);
 	const system = new WalkHintSystem(TEST_MAP, TEST_TILE_DEFINITIONS, 5);
+	assert.equal(world.walkHintAlpha, CLIENT_CONFIG.hints.maxAlpha);
 	system.update(world, player, 0);
-	system.update(world, player, 1_999);
+	system.update(world, player, CLIENT_CONFIG.hints.delayMs - 1);
 	assert.equal(world.hintedTiles.size, 0);
-	system.update(world, player, 2_560);
+	system.update(world, player, CLIENT_CONFIG.hints.delayMs);
+	assert.equal(world.hintedTiles.size, 1);
+	const firstHint = [...world.hintedTiles][0] as number;
+	assert.equal(world.hintedTileAlphas.get(firstHint), 0);
+	system.update(world, player, CLIENT_CONFIG.hints.delayMs + CLIENT_CONFIG.hints.fadeInDurationMs / 2);
+	assert.equal(world.hintedTileAlphas.get(firstHint), CLIENT_CONFIG.hints.maxAlpha / 2);
+	system.update(world, player, CLIENT_CONFIG.hints.delayMs + CLIENT_CONFIG.hints.fadeInDurationMs);
+	assert.equal(world.hintedTileAlphas.get(firstHint), CLIENT_CONFIG.hints.maxAlpha);
+	system.update(world, player, CLIENT_CONFIG.hints.delayMs + CLIENT_CONFIG.hints.ringIntervalMs);
+	assert.equal(world.hintedTiles.size, 2);
+	const secondHint = [...world.hintedTiles].find((entity) => entity !== firstHint) as number;
+	assert.equal(world.hintedTileAlphas.get(secondHint), 0);
+	const allRingsRevealedAt = CLIENT_CONFIG.hints.delayMs + 4 * CLIENT_CONFIG.hints.ringIntervalMs;
+	system.update(world, player, allRingsRevealedAt);
 	assert.equal(world.hintedTiles.size, 5);
+	const fadeStartedAt = CLIENT_CONFIG.hints.delayMs + 5 * CLIENT_CONFIG.hints.ringIntervalMs;
+	system.update(world, player, fadeStartedAt + CLIENT_CONFIG.hints.fadeDurationMs / 2);
+	assert.equal(world.walkHintAlpha, CLIENT_CONFIG.hints.maxAlpha / 2);
 	world.movingPlayers.add(player);
-	system.update(world, player, 2_001);
+	system.update(world, player, fadeStartedAt + CLIENT_CONFIG.hints.fadeDurationMs);
 	assert.equal(world.hintedTiles.size, 0);
+	assert.equal(world.hintedTileAlphas.size, 0);
+	assert.equal(world.walkHintAlpha, CLIENT_CONFIG.hints.maxAlpha);
+});
+
+test("WalkHintSystem respects obstacles and Players, then restarts only after a complete configured cycle", () => {
+	const map = {
+		0: Array.from({ length: 3 }, () => Array<number>(3).fill(1)),
+		1: Array.from({ length: 3 }, (_, row) => Array.from({ length: 3 }, (_, column) => row === 1 && column === 1 ? 101 : 0)),
+	};
+	const world = new World();
+	const groundByGrid = new Map<string, number>();
+	for (let row = 0; row < 3; row += 1) {
+		for (let column = 0; column < 3; column += 1) {
+			const tile = world.createEntity();
+			groundByGrid.set(`${row}:${column}`, tile);
+			world.tiles.set(tile, { textureId: 1 });
+			world.gridPositions.set(tile, { column, row });
+			world.renderables.set(tile, { layer: 0, order: 0 });
+		}
+	}
+	const localPlayer = world.createEntity();
+	world.gridPositions.set(localPlayer, { column: 0, row: 1 });
+	const occupant = world.createEntity();
+	world.players.set(occupant, { id: 2, name: "Occupant" });
+	world.gridPositions.set(occupant, { column: 1, row: 0 });
+	const maxSteps = 3;
+	const system = new WalkHintSystem(map, TEST_TILE_DEFINITIONS, maxSteps);
+	system.update(world, localPlayer, 0);
+	const allRingsAt = CLIENT_CONFIG.hints.delayMs + (maxSteps - 1) * CLIENT_CONFIG.hints.ringIntervalMs;
+	system.update(world, localPlayer, allRingsAt);
+	assert.equal(world.hintedTiles.has(groundByGrid.get("1:1") as number), false);
+	assert.equal(world.hintedTiles.has(groundByGrid.get("0:1") as number), true);
+
+	const cycleEndsAt = CLIENT_CONFIG.hints.delayMs
+		+ maxSteps * CLIENT_CONFIG.hints.ringIntervalMs
+		+ CLIENT_CONFIG.hints.fadeDurationMs;
+	system.update(world, localPlayer, cycleEndsAt);
+	assert.equal(world.hintedTiles.size, 0);
+	system.update(world, localPlayer, cycleEndsAt + CLIENT_CONFIG.hints.delayMs - 1);
+	assert.equal(world.hintedTiles.size, 0);
+	system.update(world, localPlayer, cycleEndsAt + CLIENT_CONFIG.hints.delayMs);
+	assert.ok(world.hintedTiles.size > 0);
 });

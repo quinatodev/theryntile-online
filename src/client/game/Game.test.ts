@@ -1,8 +1,62 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { addTileEntities, executeGameFrame } from "./Game.js";
+import { addTileEntities, executeGameFrame, startGame } from "./Game.js";
 import { World } from "../ecs/World.js";
+
+/** Lang: pt-BR - Implementa somente o carregamento assíncrono observado por RenderSystem. Lang: en-US - Implements only the asynchronous loading observed by RenderSystem. */
+class FakeImage {
+	naturalHeight = 16;
+	private loadListener: (() => void) | undefined;
+	addEventListener(type: string, listener: () => void): void { if (type === "load") this.loadListener = listener; }
+	set src(_value: string) { queueMicrotask(() => this.loadListener?.()); }
+}
+
+/** Lang: pt-BR - Cria fakes mínimos e observáveis de window, canvas, RAF e contexto. Lang: en-US - Creates minimal observable fakes for window, canvas, RAF, and context. */
+const createGameHarness = () => {
+	const windowListeners = new Map<string, Set<EventListener>>();
+	const canvasListeners = new Map<string, Set<EventListener>>();
+	const frames = new Map<number, FrameRequestCallback>();
+	const cancelled: number[] = [];
+	const drawCalls: unknown[][] = [];
+	let nextFrame = 1;
+	/** Lang: pt-BR - Registra um listener funcional no store observado. Lang: en-US - Registers a functional listener in the observed store. */
+	const add = (store: Map<string, Set<EventListener>>, type: string, listener: EventListenerOrEventListenerObject) => {
+		if (typeof listener !== "function") return;
+		const listeners = store.get(type) ?? new Set<EventListener>();
+		listeners.add(listener);
+		store.set(type, listeners);
+	};
+	/** Lang: pt-BR - Remove do store o mesmo listener registrado. Lang: en-US - Removes the same registered listener from the store. */
+	const remove = (store: Map<string, Set<EventListener>>, type: string, listener: EventListenerOrEventListenerObject) => {
+		if (typeof listener === "function") store.get(type)?.delete(listener);
+	};
+	const context = {
+		clearRect() {}, drawImage(...args: unknown[]) { drawCalls.push(args); }, imageSmoothingEnabled: false,
+	} as unknown as CanvasRenderingContext2D;
+	const canvas = {
+		addEventListener: (type: string, listener: EventListenerOrEventListenerObject) => add(canvasListeners, type, listener),
+		getBoundingClientRect: () => ({ bottom: 360, height: 360, left: 0, right: 640, top: 0, width: 640, x: 0, y: 0, toJSON() {} }),
+		getContext: () => context,
+		height: 360,
+		removeEventListener: (type: string, listener: EventListenerOrEventListenerObject) => remove(canvasListeners, type, listener),
+		width: 640,
+	} as unknown as HTMLCanvasElement;
+	const fakeWindow = {
+		addEventListener: (type: string, listener: EventListenerOrEventListenerObject) => add(windowListeners, type, listener),
+		cancelAnimationFrame: (id: number) => { cancelled.push(id); frames.delete(id); },
+		clearTimeout,
+		innerHeight: 360,
+		innerWidth: 640,
+		removeEventListener: (type: string, listener: EventListenerOrEventListenerObject) => remove(windowListeners, type, listener),
+		requestAnimationFrame: (callback: FrameRequestCallback) => { const id = nextFrame++; frames.set(id, callback);
+
+			return id; },
+		setTimeout,
+	};
+
+	return { cancelled, canvas, canvasListeners, drawCalls, fakeWindow, frames, windowListeners };
+};
 
 test("fatal frame failure performs cleanup, reports once, and prevents continuation", () => {
 	const failure = new Error("frame failed");
@@ -25,7 +79,7 @@ test("successful frame continues without cleanup or fatal notification", () => {
 	assert.equal(reports, 0);
 });
 
-test("Game creates all 130 Tile Entities exclusively from a serialized runtime payload", () => {
+test("Game creates one Tile Entity for every non-zero runtime map cell", () => {
 	const map = {
 		0: Array.from({ length: 11 }, () => Array<number>(11).fill(1)),
 		1: Array.from({ length: 11 }, (_, row) => Array.from(
@@ -37,7 +91,56 @@ test("Game creates all 130 Tile Entities exclusively from a serialized runtime p
 		map, mapId: "lobby", movement: { maxSteps: 5 }, tileDefinitions: { 1: true, 101: false },
 		zoom: { max: 3, min: 1 }, zoomPreference: 1,
 	});
-	assert.equal(world.tiles.size, 130);
-	assert.equal([...world.tiles.values()].filter(({ textureId }) => textureId === 1).length, 121);
-	assert.equal([...world.tiles.values()].filter(({ textureId }) => textureId === 101).length, 9);
+	const expectedTextureIds = Object.values(map).flat(2).filter((tileId) => tileId !== 0);
+	assert.equal(world.tiles.size, expectedTextureIds.length);
+	assert.deepEqual(
+		[...world.tiles.values()].map(({ textureId }) => textureId).sort((a, b) => a - b),
+		[...expectedTextureIds].sort((a, b) => a - b),
+	);
+});
+
+test("Game integrates JOIN, duplicate replacement, LEFT, listeners, RAF, movement queue ownership, and dispose", async () => {
+	const harness = createGameHarness();
+	const previousImage = globalThis.Image;
+	const previousWindow = globalThis.window;
+	Object.assign(globalThis, { Image: FakeImage, window: harness.fakeWindow });
+	try {
+		const game = await startGame(
+			harness.canvas,
+			{ id: 1, name: "Local", row: 0, column: 0 },
+			[{ id: 2, name: "Remote A", row: 0, column: 0 }],
+			() => true,
+			{ map: { 0: [[1]] }, mapId: "test", movement: { maxSteps: 2 }, tileDefinitions: { 1: true }, zoom: { max: 2, min: 1 }, zoomPreference: 1 },
+			async () => {},
+		);
+		game.start();
+		assert.equal([...harness.windowListeners.values()].reduce((count, listeners) => count + listeners.size, 0), 1);
+		assert.equal([...harness.canvasListeners.values()].reduce((count, listeners) => count + listeners.size, 0), 4);
+		assert.equal(harness.frames.size, 1);
+
+		harness.drawCalls.length = 0;
+		game.playerJoined({ id: 3, name: "Remote B", row: 0, column: 0 });
+		assert.equal(harness.drawCalls.length, 4);
+		harness.drawCalls.length = 0;
+		game.playerJoined({ id: 3, name: "Remote B replacement", row: 0, column: 0 });
+		assert.equal(harness.drawCalls.length, 4);
+		harness.drawCalls.length = 0;
+		game.playerLeft(2);
+		assert.equal(harness.drawCalls.length, 3);
+		game.playerMoved({ playerId: 3, fromRow: 0, fromColumn: 0, row: 0, column: 0, finalStep: true });
+
+		const scheduled = [...harness.frames.entries()][0];
+		assert.ok(scheduled);
+		game.dispose();
+		assert.equal(harness.frames.size, 0);
+		assert.deepEqual(harness.cancelled, [scheduled[0]]);
+		assert.equal([...harness.windowListeners.values()].every((listeners) => listeners.size === 0), true);
+		assert.equal([...harness.canvasListeners.values()].every((listeners) => listeners.size === 0), true);
+		scheduled[1](1_000);
+		assert.equal(harness.frames.size, 0);
+		game.playerJoined({ id: 4, name: "After dispose", row: 0, column: 0 });
+		assert.equal(harness.frames.size, 0);
+	} finally {
+		Object.assign(globalThis, { Image: previousImage, window: previousWindow });
+	}
 });

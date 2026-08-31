@@ -8,7 +8,9 @@
 import { type Camera } from "../../engine/Camera.js";
 import { type World } from "../World.js";
 
+/** Lang: pt-BR - Centraliza a câmera nos pés do Player local. Lang: en-US - Centers the camera on the local Player's feet. */
 export class CameraSystem {
+	/** Lang: pt-BR - Segue somente a primeira Entity local válida. Lang: en-US - Follows only the first valid local Entity. */
 	update(world: World, camera: Camera): void {
 		for (const entity of world.localPlayers) {
 			const visualPosition = world.visualPositions.get(entity);

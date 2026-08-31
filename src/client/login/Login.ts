@@ -102,6 +102,7 @@ const invalidateGame = () => {
 	game = null;
 };
 
+/** Lang: pt-BR - Habilita Play somente com sessão, conexão e channel válidos. Lang: en-US - Enables Play only with valid session, connection, and channel. */
 const updatePlayAvailability = () => {
 	const channel = selectedChannelId === null ? undefined : channels.get(selectedChannelId);
 
@@ -111,6 +112,7 @@ const updatePlayAvailability = () => {
 		|| channel.population >= channel.capacity;
 };
 
+/** Lang: pt-BR - Remove a senha do DOM após uso. Lang: en-US - Removes the password from the DOM after use. */
 const clearPassword = () => {
 	const passwordInput = form.elements.namedItem("password");
 
@@ -119,6 +121,7 @@ const clearPassword = () => {
 	}
 };
 
+/** Lang: pt-BR - Limpa a seleção local de channel. Lang: en-US - Clears local channel selection. */
 const clearSelection = () => {
 	selectedChannelId = null;
 
@@ -156,6 +159,7 @@ const selectChannel = (channelId: number) => {
 	updatePlayAvailability();
 };
 
+/** Lang: pt-BR - Atualiza população e disponibilidade do botão. Lang: en-US - Updates button population and availability. */
 const updateChannelButton = (channel: ChannelState) => {
 	const channelButton = [...serverList.querySelectorAll<HTMLButtonElement>("[data-server-id]")]
 		.find(({ dataset }) => Number(dataset.serverId) === channel.id);
@@ -203,6 +207,7 @@ const renderChannels = (channelStates: ChannelState[]) => {
 	}));
 };
 
+/** Lang: pt-BR - Invalida o estado dependente da conexão realtime. Lang: en-US - Invalidates state dependent on the realtime connection. */
 const markRealtimeDisconnected = () => {
 	realtimeConnected = false;
 	enterChannelPending = false;
@@ -246,6 +251,7 @@ const showLogin = (message?: string) => {
 };
 
 const realtime = createRealtime({
+	/** Lang: pt-BR - Substitui a lista pelo snapshot do servidor. Lang: en-US - Replaces the list with the server snapshot. */
 	onChannelsState(channelStates) {
 		realtimeConnected = true;
 		enterChannelPending = false;
@@ -253,6 +259,7 @@ const realtime = createRealtime({
 		renderChannels(channelStates);
 	},
 
+	/** Lang: pt-BR - Aplica atualização incremental de população. Lang: en-US - Applies an incremental population update. */
 	onChannelPopulation(channelId, population) {
 		const channel = channels.get(channelId);
 
@@ -263,6 +270,7 @@ const realtime = createRealtime({
 		}
 	},
 
+	/** Lang: pt-BR - Reflete perda do transporte conforme a tela ativa. Lang: en-US - Reflects transport loss according to the active view. */
 	onDisconnected() {
 		// Lang: pt-BR
 		// Lobby pode aguardar reconnect; Loading/Game não podem continuar sem sua presença autoritativa.
@@ -276,6 +284,7 @@ const realtime = createRealtime({
 		}
 	},
 
+	/** Lang: pt-BR - Restaura o lobby após rejeição autoritativa. Lang: en-US - Restores the lobby after authoritative rejection. */
 	onEnterChannelRejected(reason: EnterChannelRejectionReason) {
 		enterChannelPending = false;
 
@@ -286,6 +295,7 @@ const realtime = createRealtime({
 		}
 	},
 
+	/** Lang: pt-BR - Inicia o Game somente após admission autoritativa. Lang: en-US - Starts Game only after authoritative admission. */
 	async onEnterChannelSuccess(message) {
 		// Lang: pt-BR
 		// A admissão do server inicia um novo Loading e invalida qualquer runtime visual anterior.
@@ -374,15 +384,18 @@ const realtime = createRealtime({
 		}
 	},
 
+	/** Lang: pt-BR - Encaminha ou enfileira o join. Lang: en-US - Forwards or queues the join. */
 	onPlayerJoined(player) {
 		if (game) game.playerJoined(player);
 		else if (root.dataset.state === "loading") loadingPlayerEvents.push({ type: "joined", player });
 	},
 
+	/** Lang: pt-BR - Encaminha ou enfileira o leave. Lang: en-US - Forwards or queues the leave. */
 	onPlayerLeft(playerId) {
 		if (game) game.playerLeft(playerId);
 		else if (root.dataset.state === "loading") loadingPlayerEvents.push({ type: "left", playerId });
 	},
+	/** Lang: pt-BR - Encaminha ou enfileira o step autoritativo. Lang: en-US - Forwards or queues the authoritative step. */
 	onPlayerMoved(message) {
 		if (game) game.playerMoved(message);
 		else if (root.dataset.state === "loading") loadingPlayerEvents.push({ type: "moved", message });
@@ -398,12 +411,14 @@ const realtime = createRealtime({
 		showLogin(SESSION_REPLACED_MESSAGE);
 	},
 
+	/** Lang: pt-BR - Encerra runtime após revogação. Lang: en-US - Stops runtime after revocation. */
 	onSessionRevoked() {
 		realtime.close();
 
 		showLogin(SESSION_REVOKED_MESSAGE);
 	},
 
+	/** Lang: pt-BR - Descarta estado após rejeição de autenticação. Lang: en-US - Discards state after authentication rejection. */
 	onUnauthenticated() {
 		realtime.close();
 

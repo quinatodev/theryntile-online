@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { getRandomSpawn, type SpawnArea, type SpawnPosition } from "./Spawn.js";
+import { Newbie, NEWBIE_SPAWN_AREA } from "./map/Newbie.js";
 import { registerTile } from "./TileRegistry.js";
 
 registerTile(600, false);
@@ -34,4 +35,13 @@ test("Spawn prefers free cells and shares a valid cell only when all candidates 
 
 test("Spawn fails explicitly when its area has no walkable candidate", () => {
 	assert.throws(() => getRandomSpawn([], () => 0, MAP, { minRow: 0, maxRow: 0, minColumn: 1, maxColumn: 2 }), /no walkable cells/);
+});
+
+test("Newbie Spawn stays inside the global area derived from local rows and columns 6..13", () => {
+	assert.deepEqual(NEWBIE_SPAWN_AREA, { minRow: 26, maxRow: 33, minColumn: 26, maxColumn: 33 });
+	for (const random of [0, 0.25, 0.5, 0.75, 0.999]) {
+		const spawn = getRandomSpawn([], () => random, Newbie, NEWBIE_SPAWN_AREA);
+		assert.ok(spawn.row >= 26 && spawn.row <= 33);
+		assert.ok(spawn.column >= 26 && spawn.column <= 33);
+	}
 });

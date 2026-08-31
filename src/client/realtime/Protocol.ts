@@ -101,12 +101,16 @@ const rejectionReasons: EnterChannelRejectionReason[] = [
 	"NO_SPAWN_AVAILABLE",
 ];
 
+/** Lang: pt-BR - Valida identidade inteira positiva. Lang: en-US - Validates a positive integer identity. */
 const isPositiveInteger = (value: unknown): value is number => Number.isSafeInteger(value) && Number(value) > 0;
 
+/** Lang: pt-BR - Valida contador inteiro não negativo. Lang: en-US - Validates a non-negative integer counter. */
 const isNonNegativeInteger = (value: unknown): value is number => Number.isSafeInteger(value) && Number(value) >= 0;
 
+/** Lang: pt-BR - Valida índice de row do grid. Lang: en-US - Validates a grid row index. */
 const isGridRow = (value: unknown): value is number => Number.isSafeInteger(value) && Number(value) >= 0;
 
+/** Lang: pt-BR - Valida índice de column do grid. Lang: en-US - Validates a grid column index. */
 const isGridColumn = (value: unknown): value is number => Number.isSafeInteger(value) && Number(value) >= 0;
 
 /**

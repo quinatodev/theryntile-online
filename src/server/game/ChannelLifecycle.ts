@@ -19,6 +19,7 @@ export function createInitializationGuard(): () => void {
 	};
 }
 
+/** Lang: pt-BR - Valida capacidade positiva representável. Lang: en-US - Validates a representable positive capacity. */
 export const isValidChannelCapacity = (capacity: unknown): capacity is number => Number.isSafeInteger(capacity)
 	&& Number(capacity) > 0;
 
@@ -39,6 +40,7 @@ export function closeSocketAfterSend(
 	cancel: typeof clearTimeout = clearTimeout,
 ): void {
 	let closed = false;
+	/** Lang: pt-BR - Fecha o socket uma única vez após o envio. Lang: en-US - Closes the socket exactly once after sending. */
 	const closeOnce = () => {
 		if (closed) return;
 		closed = true;

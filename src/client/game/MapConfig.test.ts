@@ -4,6 +4,7 @@ import test from "node:test";
 import { changeCameraZoom } from "../engine/Camera.js";
 import { parseGameBootstrapConfig, parseRuntimeMap } from "./MapConfig.js";
 
+/** Lang: pt-BR - Cria payload válido para mutações focadas. Lang: en-US - Creates a valid payload for focused mutations. */
 const createSerializedNewbiePayload = () => ({
 	map: {
 		0: Array.from({ length: 11 }, () => Array<number>(11).fill(1)),

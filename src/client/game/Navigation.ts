@@ -20,7 +20,9 @@ const NEIGHBOURS = [
 	{ column: 0, row: 1 },
 ] as const;
 
+/** Lang: pt-BR - Produz chave estável de uma célula. Lang: en-US - Produces a stable cell key. */
 const keyOf = ({ row, column }: GridPosition) => `${row}:${column}`;
+/** Lang: pt-BR - Calcula distância Manhattan admissível para o A*. Lang: en-US - Computes the admissible Manhattan distance for A*. */
 const heuristic = (a: GridPosition, b: GridPosition) => Math.abs(a.row - b.row) + Math.abs(a.column - b.column);
 
 /**
@@ -84,6 +86,7 @@ export function findPath(
  */
 export interface ReachableCell extends GridPosition { distance: number }
 
+/** Lang: pt-BR - Enumera por BFS células alcançáveis dentro do limite. Lang: en-US - Enumerates by BFS cells reachable within the limit. */
 export function getReachableCells(
 	map: RuntimeMap, tileDefinitions: RuntimeTileDefinitions, start: GridPosition, maxSteps: number,
 ): ReachableCell[] {

@@ -17,7 +17,9 @@ import { type RuntimeMap, type RuntimeTileDefinitions } from "../../game/Map.js"
 const TILE_WIDTH = 32;
 const TILE_FOOTPRINT_HEIGHT = 16;
 
+/** Lang: pt-BR - Resolve hover apenas sobre ground walkable. Lang: en-US - Resolves hover only over walkable ground. */
 export class HoverSystem {
+	/** Lang: pt-BR - Converte o pointer para grid e atualiza o único hover. Lang: en-US - Converts the pointer to grid and updates the sole hover. */
 	update(world: World, map: RuntimeMap, tileDefinitions: RuntimeTileDefinitions, camera: Camera, viewportWidth: number, viewportHeight: number, pointer: PointerPosition): Entity | undefined {
 		world.hoveredTiles.clear();
 		if (!pointer.inside) return undefined;

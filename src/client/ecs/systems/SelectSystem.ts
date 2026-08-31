@@ -12,7 +12,9 @@ import { type World } from "../World.js";
 import { isCellWalkable } from "../../game/Map.js";
 import { type RuntimeMap, type RuntimeTileDefinitions } from "../../game/Map.js";
 
+/** Lang: pt-BR - Aplica as invariantes de seleção de destino. Lang: en-US - Applies destination-selection invariants. */
 export class SelectSystem {
+	/** Lang: pt-BR - Substitui a seleção apenas por destino alcançável e permitido. Lang: en-US - Replaces selection only with a reachable permitted target. */
 	select(world: World, map: RuntimeMap, tileDefinitions: RuntimeTileDefinitions, entity: Entity | undefined, pathLength?: number, maxMovementSteps?: number, routeActive = false): Entity | undefined {
 		const grid = entity === undefined ? undefined : world.gridPositions.get(entity);
 		if (entity === undefined || !world.tiles.has(entity) || !grid || !isCellWalkable(map, tileDefinitions, grid.row, grid.column)
