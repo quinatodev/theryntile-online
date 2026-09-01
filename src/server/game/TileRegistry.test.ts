@@ -30,11 +30,19 @@ test("Tile Registry rejects missing and invalid IDs and ranges", () => {
 	assert.throws(() => registerTiles(5, 4, false), /startId/);
 });
 
-test("cell walkability requires exactly one registered walkable Tile", () => {
+test("cell walkability requires walkable layer 0 ground and empty upper layers", () => {
 	registerTile(720, false);
-	const map = { 0: [[1, 501, 0, 720]], 1: [[0, 1, 0, 0]] };
+	registerTile(721, true);
+	const map = {
+		0: [[1, 720, 0, 1, 1, 0, 721]],
+		1: [[0, 0, 721, 721, 0, 0, 0]],
+		2: [[0, 0, 0, 0, 721, 0, 0]],
+	};
 	assert.equal(isCellWalkable(map, 0, 0), true);
 	assert.equal(isCellWalkable(map, 0, 1), false);
 	assert.equal(isCellWalkable(map, 0, 2), false);
 	assert.equal(isCellWalkable(map, 0, 3), false);
+	assert.equal(isCellWalkable(map, 0, 4), false);
+	assert.equal(isCellWalkable(map, 0, 5), false);
+	assert.equal(isCellWalkable(map, 0, 6), true);
 });

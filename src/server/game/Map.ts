@@ -55,25 +55,17 @@ export const getMapBounds = (map: MapDefinition): { columns: number; rows: numbe
 
 /**
  * Lang: pt-BR
- * Centraliza a regra autoritativa mínima de terreno: ID 1 é caminhável.
+ * Exige ground caminhável no layer 0 e todas as layers superiores vazias.
  *
  * Lang: en-US
- * Centralizes the minimal authoritative terrain rule: ID 1 is walkable.
- */
-/**
- * Lang: pt-BR
- * Avalia bounds e walkability em todas as layers do mapa informado.
- *
- * Lang: en-US
- * Evaluates bounds and walkability across every layer of the supplied map.
+ * Requires walkable ground on layer 0 and every upper layer to be empty.
  */
 export const isCellWalkable = (map: MapDefinition, row: number, column: number): boolean => {
 	const { rows, columns } = getMapBounds(map);
 
 	if (row < 0 || row >= rows || column < 0 || column >= columns) return false;
-	const tileIds = getMapLayers(map)
-		.map((layer) => map[layer]?.[row]?.[column] ?? 0)
-		.filter((tileId) => tileId !== 0);
+	const groundTileId = map[0]?.[row]?.[column] ?? 0;
+	if (groundTileId === 0 || !isTileWalkable(groundTileId)) return false;
 
-	return tileIds.length === 1 && isTileWalkable(tileIds[0] as number);
+	return getMapLayers(map).every((layer) => layer === 0 || (map[layer]?.[row]?.[column] ?? 0) === 0);
 };

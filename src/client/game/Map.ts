@@ -76,10 +76,10 @@ export const isTileWalkable = (tileDefinitions: RuntimeTileDefinitions, tileId: 
 
 /**
  * Lang: pt-BR
- * Avalia bounds e walkability usando somente o mapa runtime atual.
+ * Exige ground caminhável no layer 0 e todas as layers superiores vazias no mapa runtime.
  *
  * Lang: en-US
- * Evaluates bounds and walkability using only the current runtime map.
+ * Requires walkable ground on layer 0 and every upper layer to be empty in the runtime map.
  */
 export const isCellWalkable = (
 	map: RuntimeMap, tileDefinitions: RuntimeTileDefinitions, row: number, column: number,
@@ -87,11 +87,10 @@ export const isCellWalkable = (
 	const { rows, columns } = getMapBounds(map);
 
 	if (row < 0 || row >= rows || column < 0 || column >= columns) return false;
-	const tileIds = getMapLayers(map)
-		.map((layer) => map[layer]?.[row]?.[column] ?? 0)
-		.filter((tileId) => tileId !== 0);
+	const groundTileId = map[0]?.[row]?.[column] ?? 0;
+	if (groundTileId === 0 || !isTileWalkable(tileDefinitions, groundTileId)) return false;
 
-	return tileIds.length === 1 && isTileWalkable(tileDefinitions, tileIds[0] as number);
+	return getMapLayers(map).every((layer) => layer === 0 || (map[layer]?.[row]?.[column] ?? 0) === 0);
 };
 
 /**

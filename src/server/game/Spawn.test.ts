@@ -28,6 +28,11 @@ test("Spawn excludes empty, stacked, and out-of-area walkable cells", () => {
 	}
 });
 
+test("Spawn rejects an upper-layer-only walkable Tile as missing ground", () => {
+	const map = { 0: [[0]], 1: [[501]] };
+	assert.throws(() => getRandomSpawn([], () => 0, map, { minRow: 0, maxRow: 0, minColumn: 0, maxColumn: 0 }), /no walkable cells/);
+});
+
 test("Spawn prefers free cells and shares a valid cell only when all candidates are occupied", () => {
 	assert.deepEqual(getRandomSpawn(candidates.slice(0, -1), () => 0.5, MAP, AREA), { row: 1, column: 2 });
 	assert.deepEqual(getRandomSpawn(candidates, () => 0, MAP, AREA), { row: 0, column: 0 });

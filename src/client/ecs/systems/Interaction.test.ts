@@ -201,3 +201,27 @@ test("WalkHintSystem respects obstacles and Players, then restarts only after a 
 	system.update(world, localPlayer, cycleEndsAt + CLIENT_CONFIG.hints.delayMs);
 	assert.ok(world.hintedTiles.size > 0);
 });
+
+test("WalkHintSystem cannot use an upper-layer-only walkable Tile as a bridge", () => {
+	const map = { 0: [[1, 0, 1]], 1: [[0, 1, 0]] };
+	const world = new World();
+	const groundByColumn = new Map<number, number>();
+	for (const column of [0, 2]) {
+		const tile = world.createEntity();
+		groundByColumn.set(column, tile);
+		world.tiles.set(tile, { textureId: 1 });
+		world.gridPositions.set(tile, { column, row: 0 });
+		world.renderables.set(tile, { layer: 0, order: 0 });
+	}
+	const upperTile = world.createEntity();
+	world.tiles.set(upperTile, { textureId: 1 });
+	world.gridPositions.set(upperTile, { column: 1, row: 0 });
+	world.renderables.set(upperTile, { layer: 1, order: 0 });
+	const player = world.createEntity();
+	world.gridPositions.set(player, { column: 0, row: 0 });
+	const system = new WalkHintSystem(map, { 1: true }, 3);
+	system.update(world, player, 0);
+	system.update(world, player, CLIENT_CONFIG.hints.delayMs + 2 * CLIENT_CONFIG.hints.ringIntervalMs);
+	assert.equal(world.hintedTiles.has(upperTile), false);
+	assert.equal(world.hintedTiles.has(groundByColumn.get(2) as number), false);
+});

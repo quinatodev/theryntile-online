@@ -40,13 +40,28 @@ test("client A-star uses the runtime map and runtime movement limit", () => {
 		.every(({ row, column }) => isCellWalkable(config.map, config.tileDefinitions, row, column)));
 });
 
-test("client walkability rejects empty and stacked cells and A-star cannot reach isolated Tiles", () => {
-	const definitions = { 1: true, 501: true };
-	const map = { 0: [[1, 1, 0, 501], [0, 0, 0, 0]], 1: [[0, 1, 0, 0], [0, 0, 0, 501]] };
+test("client walkability requires walkable layer 0 ground and empty upper layers", () => {
+	const definitions = { 1: true, 501: true, 600: false };
+	const map = {
+		0: [[1, 600, 0, 1, 1, 0, 501]],
+		1: [[0, 0, 501, 501, 0, 0, 0]],
+		2: [[0, 0, 0, 0, 501, 0, 0]],
+	};
 	assert.equal(isCellWalkable(map, definitions, 0, 0), true);
 	assert.equal(isCellWalkable(map, definitions, 0, 1), false);
 	assert.equal(isCellWalkable(map, definitions, 0, 2), false);
-	assert.equal(isCellWalkable(map, definitions, 0, 3), true);
-	assert.equal(findPath(map, definitions, { row: 0, column: 0 }, { row: 0, column: 3 }), undefined);
-	assert.equal(findPath(map, definitions, { row: 0, column: 0 }, { row: 1, column: 3 }), undefined);
+	assert.equal(isCellWalkable(map, definitions, 0, 3), false);
+	assert.equal(isCellWalkable(map, definitions, 0, 4), false);
+	assert.equal(isCellWalkable(map, definitions, 0, 5), false);
+	assert.equal(isCellWalkable(map, definitions, 0, 6), true);
+});
+
+test("client A-star never crosses an upper-layer-only walkable Tile", () => {
+	const definitions = { 1: true, 501: true };
+	const detour = { 0: [[1, 1, 1], [1, 0, 1]], 1: [[0, 0, 0], [0, 501, 0]] };
+	assert.deepEqual(findPath(detour, definitions, { row: 1, column: 0 }, { row: 1, column: 2 }), [
+		{ row: 0, column: 0 }, { row: 0, column: 1 }, { row: 0, column: 2 }, { row: 1, column: 2 },
+	]);
+	const blocked = { 0: [[1, 0, 1]], 1: [[0, 501, 0]] };
+	assert.equal(findPath(blocked, definitions, { row: 0, column: 0 }, { row: 0, column: 2 }), undefined);
 });

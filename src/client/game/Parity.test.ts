@@ -11,8 +11,9 @@ import { findPath } from "./Navigation.js";
 registerTile(600, false);
 
 const MAP = {
-	0: [[1, 1, 600, 501], [1, 1, 1, 0], [1, 1, 1, 501]],
-	1: [[0, 1, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]],
+	0: [[1, 1, 600, 501], [1, 1, 0, 0], [1, 1, 1, 501]],
+	1: [[0, 1, 0, 0], [0, 0, 501, 0], [0, 0, 0, 0]],
+	2: [[0, 0, 0, 0], [0, 0, 0, 501], [0, 0, 0, 0]],
 };
 const runtime = parseGameBootstrapConfig({
 	map: MAP, mapId: "fixture", movement: { maxSteps: 5 }, tileDefinitions: { 1: true, 501: true, 600: false },
@@ -29,7 +30,7 @@ test("server payload round-trip preserves Tile definitions and cell-walkability 
 	}
 });
 
-test("client and server A-star agree for continuous, empty-gap, stacked, and isolated routes", () => {
+test("client and server A-star agree for continuous, empty, stacked, and upper-layer-only routes", () => {
 	const routes = [
 		[{ row: 1, column: 0 }, { row: 1, column: 2 }],
 		[{ row: 0, column: 0 }, { row: 0, column: 3 }],

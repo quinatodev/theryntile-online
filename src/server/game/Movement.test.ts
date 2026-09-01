@@ -48,6 +48,15 @@ test("authoritative A-star rejects gaps, isolated Tiles, and real detours above 
 	assert.equal(getAuthorizedPath(start, destination, detour), undefined);
 });
 
+test("authoritative A-star never crosses an upper-layer-only walkable Tile", () => {
+	const detour = { 0: [[1, 1, 1], [1, 0, 1]], 1: [[0, 0, 0], [0, 501, 0]] };
+	assert.deepEqual(findPath({ row: 1, column: 0 }, { row: 1, column: 2 }, detour), [
+		{ row: 0, column: 0 }, { row: 0, column: 1 }, { row: 0, column: 2 }, { row: 1, column: 2 },
+	]);
+	const blocked = { 0: [[1, 0, 1]], 1: [[0, 501, 0]] };
+	assert.equal(findPath({ row: 0, column: 0 }, { row: 0, column: 2 }, blocked), undefined);
+});
+
 test("authoritative route lock rejects concurrent intent and unlocks after completion or cleanup", () => {
 	const routes = new RouteState<object>();
 	const player = {};
