@@ -62,7 +62,7 @@ test("composition rejects invalid objects, layers, Tile values, and unregistered
 	assert.throws(() => composeMapChunks([[chunk({ 0: matrix(999_999) })]]), /not registered/);
 });
 
-test("the current Newbie composition is a 60x60 map", () => {
+test("the current Newbie composition is a 60x60 multilayer map", () => {
 	assert.deepEqual(getMapBounds(Newbie), { columns: 60, rows: 60 });
-	assert.deepEqual(getMapLayers(Newbie), [0]);
+	assert.deepEqual(getMapLayers(Newbie), [0, 1, 2]);
 });
