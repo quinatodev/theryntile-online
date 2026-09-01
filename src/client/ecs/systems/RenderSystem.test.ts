@@ -11,6 +11,7 @@ import {
 	getHighlightFillStyle,
 	getHighlightRenderOrder,
 	getMovementSortingGrid,
+	getRenderableRenderOrder,
 	getTileFeedbackState,
 	getTileVisualPosition,
 	isAabbVisible,
@@ -78,11 +79,26 @@ test("moving players switch sorting grid once at the shared tile boundary in eve
 			fromColumn: transition.fromColumn, fromRow: transition.fromRow, progress: 0.499,
 			startX: 0, startY: 0, targetColumn: transition.column, targetRow: transition.row, targetX: 0, targetY: 0,
 		};
-		const gridPosition = { column: transition.column, row: transition.row };
+		const gridPosition = { column: transition.fromColumn, row: transition.fromRow };
 		assert.deepEqual(getMovementSortingGrid(gridPosition, movement), { column: transition.fromColumn, row: transition.fromRow });
 		movement.progress = 0.5;
 		assert.deepEqual(getMovementSortingGrid(gridPosition, movement), { column: transition.column, row: transition.row });
+		movement.progress = 0.9;
+		assert.deepEqual(getMovementSortingGrid(gridPosition, movement), { column: transition.column, row: transition.row });
+		assert.deepEqual(gridPosition, { column: transition.fromColumn, row: transition.fromRow });
 	}
+});
+
+test("moving Player joins the destination grid painter order after midpoint without mutating logical grid", () => {
+	const logicalGrid = { row: 0, column: 0 };
+	const movement: MovementComponent = {
+		finalStep: true, fromRow: 0, fromColumn: 0, progress: 0.9,
+		startX: 0, startY: 0, targetRow: 1, targetColumn: 0, targetX: -16, targetY: 8,
+	};
+	const player = { ...getRenderableRenderOrder(getMovementSortingGrid(logicalGrid, movement), { layer: 1, order: 100 }, 7), name: "player" };
+	const destinationTile = { ...getRenderableRenderOrder({ row: 1, column: 0 }, { layer: 1, order: 0 }, 1), name: "destination tile" };
+	assert.deepEqual(orderedNames([player, destinationTile]), ["destination tile", "player"]);
+	assert.deepEqual(logicalGrid, { row: 0, column: 0 });
 });
 
 test("highlight ordering remains local to its Tile grid", () => {

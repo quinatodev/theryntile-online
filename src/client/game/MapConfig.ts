@@ -80,7 +80,7 @@ export function parseGameBootstrapConfig(value: unknown): GameRuntimeConfig {
 	if (!isInteger(movement.maxSteps) || movement.maxSteps <= 0) throw new Error("Invalid game configuration: movement.maxSteps must be a positive safe integer.");
 	if (!zoom || typeof zoom !== "object") throw new Error("Invalid game configuration: zoom is missing or invalid.");
 	if (!isInteger(zoom.min) || !isInteger(zoom.max) || zoom.min > zoom.max) throw new Error("Invalid game configuration: zoom limits must be ordered safe integers.");
-	if (!isInteger(response.zoomPreference)) throw new Error("Invalid game configuration: zoomPreference must be a safe integer.");
+	if (typeof response.zoomPreference !== "number" || !Number.isFinite(response.zoomPreference)) throw new Error("Invalid game configuration: zoomPreference must be finite.");
 
 	const map = parseRuntimeMap(response.map);
 	const tileDefinitions = parseTileDefinitions(response.tileDefinitions);

@@ -9,9 +9,9 @@ import { type Entity, type PlayerSnapshot, type PointerPosition } from "../ecs/C
 import { AnimationSystem } from "../ecs/systems/AnimationSystem.js";
 import { CameraSystem } from "../ecs/systems/CameraSystem.js";
 import { HoverSystem } from "../ecs/systems/HoverSystem.js";
-import { enqueueMovementStep, MovementSystem } from "../ecs/systems/MovementSystem.js";
+import { enqueueMovementStep, MovementSystem, reconcileMovement } from "../ecs/systems/MovementSystem.js";
 import { RenderSystem } from "../ecs/systems/RenderSystem.js";
-import { SelectSystem } from "../ecs/systems/SelectSystem.js";
+import { canSelectTile, SelectSystem } from "../ecs/systems/SelectSystem.js";
 import { WalkHintSystem } from "../ecs/systems/WalkHintSystem.js";
 import { World } from "../ecs/World.js";
 import { changeCameraZoom, type Camera } from "../engine/Camera.js";
@@ -30,13 +30,20 @@ export interface PlayerMoved {
 	playerId: number;
 	row: number;
 	finalStep: boolean;
+	sequence: number;
+	startedAt: number;
+	endsAt: number;
+	serverTime: number;
 }
+
+export interface PlayersResync { serverTime: number; players: Array<PlayerSnapshot & { sequence: number; movement: Omit<PlayerMoved, "playerId" | "serverTime"> | null }>; }
 
 export interface Game {
 	dispose(): void;
 	playerJoined(player: PlayerSnapshot): void;
 	playerLeft(playerId: number): void;
 	playerMoved(message: PlayerMoved): void;
+	playersResync(message: PlayersResync): void;
 	start(): void;
 }
 
@@ -93,6 +100,7 @@ export async function startGame(
 	config: GameRuntimeConfig,
 	saveZoom: (zoom: number) => Promise<void>,
 	onFatalError: (error: unknown) => void = () => {},
+	requestPlayersResync: () => boolean = () => false,
 ): Promise<Game> {
 	const context = canvas.getContext("2d");
 	if (!context) throw new Error("Canvas 2D is not available.");
@@ -115,8 +123,13 @@ export async function startGame(
 		}
 	}
 	const localPlayerEntity = createPlayerEntity(world, localPlayer, true);
+	world.movementSequences.set(localPlayerEntity, localPlayer.sequence ?? 0);
 	playerEntities.set(localPlayer.id, localPlayerEntity);
-	for (const player of initialRemotePlayers) playerEntities.set(player.id, createPlayerEntity(world, player, false));
+	for (const player of initialRemotePlayers) {
+		const entity = createPlayerEntity(world, player, false);
+		world.movementSequences.set(entity, player.sequence ?? 0);
+		playerEntities.set(player.id, entity);
+	}
 
 	const localVisualPosition = world.visualPositions.get(localPlayerEntity);
 	if (!localVisualPosition) throw new Error("Local Player visual position is not available.");
@@ -130,6 +143,8 @@ export async function startGame(
 	let zoomSaveTimer: number | null = null;
 	let lastSavedZoom = config.zoomPreference;
 	const pointer: PointerPosition = { canvasX: 0, canvasY: 0, inside: false };
+	let serverTimeOffset = 0;
+	const observeServerTime = (serverTime: number) => { serverTimeOffset = serverTime - performance.now(); };
 
 	/** Lang: pt-BR - Renderiza somente um runtime iniciado e vivo. Lang: en-US - Renders only a started, live runtime. */
 	const render = () => { if (started && !disposed) renderSystem.render(world, camera, performance.now()); };
@@ -139,7 +154,7 @@ export async function startGame(
 		if (!started || disposed) return;
 		const completed = executeGameFrame(() => {
 			updateHoverAndPath();
-			movementSystem.update(world, timestamp);
+			movementSystem.update(world, timestamp + serverTimeOffset, timestamp);
 			animationSystem.update(world, timestamp);
 			cameraSystem.update(world, camera);
 			walkHintSystem.update(world, localPlayerEntity, timestamp);
@@ -195,6 +210,7 @@ export async function startGame(
 		world.pathPreviewTiles.clear();
 		world.invalidHoveredTiles.clear();
 		const hoveredEntity = hoverSystem.update(world, config.map, config.tileDefinitions, camera, canvas.width, canvas.height, pointer);
+		canvas.style.cursor = "default";
 		if (hoveredEntity === undefined || world.movingPlayers.has(localPlayerEntity)) return hoveredEntity;
 		const target = world.gridPositions.get(hoveredEntity);
 		const current = world.gridPositions.get(localPlayerEntity);
@@ -210,6 +226,7 @@ export async function startGame(
 			const entity = tileAt(position.row, position.column);
 			if (entity !== undefined) world.pathPreviewTiles.add(entity);
 		}
+		if (canSelectTile(world, config.map, config.tileDefinitions, hoveredEntity, path.length, config.movement.maxSteps, false)) canvas.style.cursor = "pointer";
 
 		return hoveredEntity;
 	};
@@ -219,6 +236,7 @@ export async function startGame(
 		world.hoveredTiles.clear();
 		world.invalidHoveredTiles.clear();
 		world.pathPreviewTiles.clear();
+		canvas.style.cursor = "default";
 		render();
 	};
 	/** Lang: pt-BR - Envia MOVE somente após validar o destino. Lang: en-US - Sends MOVE only after validating the target. */
@@ -237,10 +255,18 @@ export async function startGame(
 		);
 		if (selectedEntity === undefined) return;
 		world.movingPlayers.add(localPlayerEntity);
+		canvas.style.cursor = "default";
 		world.pathPreviewTiles.clear();
 		world.invalidHoveredTiles.clear();
 		walkHintSystem.reset(world);
 		render();
+	};
+	/** Lang: pt-BR - Ao voltar visível solicita uma única fonte atual, sem replay do backlog local. Lang: en-US - On becoming visible requests one current source of truth without replaying local backlog. */
+	const handleVisibilityChange = () => {
+		if (!disposed && document.visibilityState === "visible") {
+			canvas.style.cursor = "default";
+			requestPlayersResync();
+		}
 	};
 	/** Lang: pt-BR - Remove listeners, timers, RAF e estado ECS. Lang: en-US - Removes listeners, timers, RAF, and ECS state. */
 	disposeRuntime = () => {
@@ -251,6 +277,8 @@ export async function startGame(
 		canvas.removeEventListener("pointermove", updatePointer);
 		canvas.removeEventListener("pointerleave", leaveCanvas);
 		canvas.removeEventListener("click", selectClickedTile);
+		document.removeEventListener("visibilitychange", handleVisibilityChange);
+		canvas.style.cursor = "default";
 		if (animationFrame !== null) window.cancelAnimationFrame(animationFrame);
 		if (zoomSaveTimer !== null) window.clearTimeout(zoomSaveTimer);
 		animationFrame = null;
@@ -270,7 +298,9 @@ export async function startGame(
 			if (disposed) return;
 			const previousEntity = playerEntities.get(player.id);
 			if (previousEntity !== undefined) world.removeEntity(previousEntity);
-			playerEntities.set(player.id, createPlayerEntity(world, player, false));
+			const entity = createPlayerEntity(world, player, false);
+			world.movementSequences.set(entity, player.sequence ?? 0);
+			playerEntities.set(player.id, entity);
 			render();
 		},
 		/** Lang: pt-BR - Remove somente o Player remoto indicado. Lang: en-US - Removes only the indicated remote Player. */
@@ -288,7 +318,19 @@ export async function startGame(
 			if (!isCellWalkable(config.map, config.tileDefinitions, message.row, message.column)) return;
 			const entity = playerEntities.get(message.playerId);
 			if (entity === undefined) return;
+			observeServerTime(message.serverTime);
 			enqueueMovementStep(world, entity, message);
+			ensureAnimationFrame();
+		},
+		/** Lang: pt-BR - Reconcilia somente snapshots monotonicamente atuais. Lang: en-US - Reconciles only monotonically current snapshots. */
+		playersResync(message) {
+			if (disposed) return;
+			observeServerTime(message.serverTime);
+			for (const player of message.players) {
+				const entity = playerEntities.get(player.id);
+				if (entity !== undefined) reconcileMovement(world, entity, player.row, player.column, player.sequence, player.movement);
+			}
+			canvas.style.cursor = "default";
 			ensureAnimationFrame();
 		},
 		/** Lang: pt-BR - Instala lifecycle e inicia uma RAF. Lang: en-US - Installs lifecycle and starts one RAF. */
@@ -301,6 +343,7 @@ export async function startGame(
 			canvas.addEventListener("pointermove", updatePointer);
 			canvas.addEventListener("pointerleave", leaveCanvas);
 			canvas.addEventListener("click", selectClickedTile);
+			document.addEventListener("visibilitychange", handleVisibilityChange);
 			resizeAndRender();
 			ensureAnimationFrame();
 		},

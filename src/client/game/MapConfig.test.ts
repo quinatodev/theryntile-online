@@ -20,6 +20,7 @@ test("runtime config accepts a serialized Newbie payload and clamps persisted zo
 	const payload = createSerializedNewbiePayload();
 	assert.equal(parseGameBootstrapConfig(payload).mapId, "lobby");
 	assert.equal(parseGameBootstrapConfig({ ...payload, zoomPreference: 99 }).zoomPreference, 3);
+	assert.equal(parseGameBootstrapConfig({ ...payload, zoomPreference: 2.25 }).zoomPreference, 2.25);
 });
 
 test("runtime map parser rejects every malformed structural class", () => {
@@ -46,12 +47,18 @@ test("bootstrap parser reports the exact invalid field without weakening validat
 	assert.throws(() => parseGameBootstrapConfig({ ...payload, zoomPreference: "1" }), /zoomPreference/);
 });
 
-test("camera zoom moves discretely inside runtime limits", () => {
+test("camera zoom moves in normalized quarters inside runtime limits", () => {
 	const camera = { x: 0, y: 0, zoom: 2 };
 	changeCameraZoom(camera, -1, 1, 3);
-	assert.equal(camera.zoom, 3);
+	assert.equal(camera.zoom, 2.25);
 	changeCameraZoom(camera, -1, 1, 3);
-	assert.equal(camera.zoom, 3);
+	assert.equal(camera.zoom, 2.5);
 	changeCameraZoom(camera, 1, 1, 3);
-	assert.equal(camera.zoom, 2);
+	assert.equal(camera.zoom, 2.25);
+	for (let index = 0; index < 8; index += 1) changeCameraZoom(camera, -100, 1, 3);
+	assert.equal(camera.zoom, 3);
+	changeCameraZoom(camera, -0.01, 1, 3);
+	assert.equal(camera.zoom, 3);
+	for (let index = 0; index < 12; index += 1) changeCameraZoom(camera, 100, 1, 3);
+	assert.equal(camera.zoom, 1);
 });

@@ -3,7 +3,7 @@ import test from "node:test";
 
 import { AnimationSystem } from "./systems/AnimationSystem.js";
 import { CameraSystem } from "./systems/CameraSystem.js";
-import { enqueueMovementStep, MovementSystem } from "./systems/MovementSystem.js";
+import { enqueueMovementStep, MovementSystem, reconcileMovement } from "./systems/MovementSystem.js";
 import { getMovementSortingGrid } from "./systems/RenderSystem.js";
 import { World } from "./World.js";
 
@@ -103,7 +103,7 @@ test("a step received at 90% is queued without replacing the active interpolatio
 	assert.equal(world.movementQueues.get(entity)?.length, 1);
 	system.update(world, 500);
 	assert.deepEqual(world.visualPositions.get(entity), { x: 16, y: 8 });
-	assert.deepEqual(world.gridPositions.get(entity), { column: 1, row: 1 });
+	assert.deepEqual(world.gridPositions.get(entity), { column: 1, row: 0 });
 	assert.deepEqual(getMovementSortingGrid(world.gridPositions.get(entity)!, world.movements.get(entity)), { column: 1, row: 0 });
 	assert.equal(world.animations.get(entity)?.direction, "left_down");
 	system.update(world, 500);
@@ -121,17 +121,17 @@ test("rapid Loading-style replay preserves and completes three authoritative ste
 	enqueueMovementStep(world, entity, { fromColumn: 0, fromRow: 0, column: 1, row: 0, finalStep: false });
 	enqueueMovementStep(world, entity, { fromColumn: 1, fromRow: 0, column: 2, row: 0, finalStep: false });
 	enqueueMovementStep(world, entity, { fromColumn: 2, fromRow: 0, column: 2, row: 1, finalStep: true });
-	assert.deepEqual(world.gridPositions.get(entity), { column: 1, row: 0 });
+	assert.deepEqual(world.gridPositions.get(entity), { column: 0, row: 0 });
 	assert.equal(world.movementQueues.get(entity)?.length, 2);
 	system.update(world, 0);
 	system.update(world, 500);
 	assert.deepEqual(world.visualPositions.get(entity), { x: 16, y: 8 });
-	assert.deepEqual(world.gridPositions.get(entity), { column: 2, row: 0 });
+	assert.deepEqual(world.gridPositions.get(entity), { column: 1, row: 0 });
 	assert.equal(world.animations.get(entity)?.direction, "right_down");
 	system.update(world, 500);
 	system.update(world, 1_000);
 	assert.deepEqual(world.visualPositions.get(entity), { x: 32, y: 16 });
-	assert.deepEqual(world.gridPositions.get(entity), { column: 2, row: 1 });
+	assert.deepEqual(world.gridPositions.get(entity), { column: 2, row: 0 });
 	assert.equal(world.animations.get(entity)?.direction, "left_down");
 	system.update(world, 1_000);
 	system.update(world, 1_500);
@@ -160,7 +160,7 @@ test("local and remote Players own independent queues and Entity cleanup removes
 	const world = new World();
 	const local = createMovingPlayer(world, true);
 	const remote = createMovingPlayer(world);
-	enqueueMovementStep(world, local, { fromColumn: 0, fromRow: 0, column: 1, row: 0, finalStep: true });
+	enqueueMovementStep(world, local, { fromColumn: 0, fromRow: 0, column: 1, row: 0, sequence: 1, startedAt: 500, endsAt: 1_000, finalStep: true });
 	enqueueMovementStep(world, local, { fromColumn: 1, fromRow: 0, column: 2, row: 0, finalStep: true });
 	enqueueMovementStep(world, remote, { fromColumn: 0, fromRow: 0, column: 0, row: 1, finalStep: true });
 	assert.equal(world.movementQueues.get(local)?.length, 1);
@@ -184,11 +184,52 @@ test("only a completed local final step clears destination selection", () => {
 	system.update(world, 0);
 	system.update(world, 500);
 	assert.equal(world.selectedTiles.has(selected), true);
-	enqueueMovementStep(world, local, { fromColumn: 0, fromRow: 0, column: 1, row: 0, finalStep: true });
+	enqueueMovementStep(world, local, { fromColumn: 0, fromRow: 0, column: 1, row: 0, sequence: 1, startedAt: 500, endsAt: 1_000, finalStep: true });
 	system.update(world, 500);
 	assert.equal(world.selectedTiles.has(selected), true);
 	system.update(world, 1_000);
 	assert.equal(world.selectedTiles.size, 0);
+});
+
+test("authoritative timeline skips expired backlog and interpolates only the current step", () => {
+	const world = new World();
+	const entity = createMovingPlayer(world);
+	const system = new MovementSystem();
+	enqueueMovementStep(world, entity, { fromColumn: 0, fromRow: 0, column: 1, row: 0, sequence: 1, startedAt: 0, endsAt: 500, finalStep: false });
+	enqueueMovementStep(world, entity, { fromColumn: 1, fromRow: 0, column: 2, row: 0, sequence: 2, startedAt: 500, endsAt: 1_000, finalStep: false });
+	enqueueMovementStep(world, entity, { fromColumn: 2, fromRow: 0, column: 2, row: 1, sequence: 3, startedAt: 1_000, endsAt: 1_500, finalStep: true });
+	system.update(world, 1_250);
+	assert.deepEqual(world.gridPositions.get(entity), { column: 2, row: 0 });
+	assert.equal(world.movements.get(entity)?.sequence, 3);
+	assert.equal(world.movements.get(entity)?.progress, 0.5);
+	assert.deepEqual(world.visualPositions.get(entity), { x: 24, y: 20 });
+});
+
+test("expired final step converges directly to Idle and stale sequence is rejected", () => {
+	const world = new World();
+	const entity = createMovingPlayer(world, true);
+	const selected = world.createEntity();
+	world.selectedTiles.add(selected);
+	assert.equal(enqueueMovementStep(world, entity, { fromColumn: 0, fromRow: 0, column: 1, row: 0, sequence: 4, startedAt: 0, endsAt: 500, finalStep: true }), true);
+	assert.equal(enqueueMovementStep(world, entity, { fromColumn: 0, fromRow: 0, column: 0, row: 1, sequence: 3, startedAt: 0, endsAt: 500, finalStep: true }), false);
+	new MovementSystem().update(world, 5_000);
+	assert.deepEqual(world.gridPositions.get(entity), { column: 1, row: 0 });
+	assert.equal(world.animations.get(entity)?.state, "idle");
+	assert.equal(world.selectedTiles.size, 0);
+});
+
+test("resync replaces history with stopped or current monotonic authoritative state", () => {
+	const world = new World();
+	const entity = createMovingPlayer(world);
+	enqueueMovementStep(world, entity, { fromColumn: 0, fromRow: 0, column: 1, row: 0, sequence: 2, startedAt: 0, endsAt: 500, finalStep: false });
+	assert.equal(reconcileMovement(world, entity, 4, 4, 1, null), false);
+	assert.equal(reconcileMovement(world, entity, 1, 0, 2, null), true);
+	assert.deepEqual(world.gridPositions.get(entity), { row: 1, column: 0 });
+	assert.equal(world.movementQueues.has(entity), false);
+	assert.equal(reconcileMovement(world, entity, 1, 0, 3, { fromRow: 1, fromColumn: 0, row: 1, column: 1, sequence: 3, startedAt: 1_000, endsAt: 1_500, finalStep: true }), true);
+	new MovementSystem().update(world, 1_250);
+	assert.equal(world.movements.get(entity)?.progress, 0.5);
+	assert.equal(world.animations.get(entity)?.state, "walk");
 });
 
 test("AnimationSystem derives looping idle and walk frames from timestamps", () => {

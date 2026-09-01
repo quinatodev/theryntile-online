@@ -15,6 +15,7 @@ class FakeWebSocket {
 	static readonly OPEN = 1;
 	static instances: FakeWebSocket[] = [];
 	readonly listeners = new Map<string, Array<(event: Event) => void>>();
+	readonly sent: string[] = [];
 	readyState = FakeWebSocket.OPEN;
 
 	constructor() {
@@ -42,7 +43,7 @@ class FakeWebSocket {
 		}
 	}
 
-	send(): void {}
+	send(data: string): void { this.sent.push(data); }
 }
 
 const callbacks = {
@@ -157,14 +158,16 @@ test("Realtime dispatches each validated multiplayer message to only its owning 
 		for (const message of [
 			{ type: "CHANNEL_POPULATION", channelId: 1, population: 2 },
 			{ type: "ENTER_CHANNEL_REJECTED", reason: "CHANNEL_FULL" },
-			{ type: "PLAYER_JOINED", player: { id: 2, name: "Remote", row: 1, column: 1 } },
+			{ type: "PLAYER_JOINED", player: { id: 2, name: "Remote", row: 1, column: 1, sequence: 0 } },
 			{ type: "PLAYER_LEFT", playerId: 2 },
-			{ type: "PLAYER_MOVED", playerId: 2, fromRow: 1, fromColumn: 1, row: 1, column: 2, finalStep: true },
+			{ type: "PLAYER_MOVED", playerId: 2, fromRow: 1, fromColumn: 1, row: 1, column: 2, sequence: 1, startedAt: 1_000, endsAt: 1_500, serverTime: 1_100, finalStep: true },
 			{ type: "SESSION_REPLACED" },
-			{ type: "ENTER_CHANNEL_SUCCESS", channelId: 1, player: { id: 1, name: "Local", row: 1, column: 1 }, players: [] },
+			{ type: "ENTER_CHANNEL_SUCCESS", channelId: 1, player: { id: 1, name: "Local", row: 1, column: 1, sequence: 0 }, players: [] },
 		]) socket.emitMessage(message);
 
 		assert.deepEqual(dispatched, ["population", "rejected", "joined", "left", "moved", "replaced", "entered"]);
+		assert.equal(realtime.requestPlayersResync(), true);
+		assert.deepEqual(JSON.parse(socket.sent.at(-1) ?? "null"), { type: "RESYNC_PLAYERS" });
 		realtime.close();
 	} finally {
 		globalThis.WebSocket = originalWebSocket;

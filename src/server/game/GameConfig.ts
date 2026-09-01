@@ -42,12 +42,12 @@ export const createGameBootstrapPayload = (zoomPreference: number) => {
 
 /**
  * Lang: pt-BR
- * Confirma que um zoom discreto pertence ao intervalo global aceito.
+ * Confirma que um zoom finito pertence ao intervalo global aceito.
  *
  * Lang: en-US
- * Confirms that a discrete zoom belongs to the accepted global range.
+ * Confirms that a finite zoom belongs to the accepted global range.
  */
-export const isAllowedZoom = (zoom: number): boolean => Number.isInteger(zoom)
+export const isAllowedZoom = (zoom: number): boolean => Number.isFinite(zoom)
 	&& zoom >= GAME_CONFIG.zoom.min
 	&& zoom <= GAME_CONFIG.zoom.max;
 
@@ -60,5 +60,5 @@ export const isAllowedZoom = (zoom: number): boolean => Number.isInteger(zoom)
  */
 export const clampZoom = (zoom: number): number => Math.max(
 	GAME_CONFIG.zoom.min,
-	Math.min(GAME_CONFIG.zoom.max, Math.round(zoom)),
+	Math.min(GAME_CONFIG.zoom.max, zoom),
 );

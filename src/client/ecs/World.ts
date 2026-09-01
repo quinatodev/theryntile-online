@@ -36,6 +36,7 @@ export class World {
 	readonly localPlayers = new Set<Entity>();
 	readonly movements = new Map<Entity, MovementComponent>();
 	readonly movementQueues = new Map<Entity, MovementStep[]>();
+	readonly movementSequences = new Map<Entity, number>();
 	readonly movingPlayers = new Set<Entity>();
 	readonly invalidHoveredTiles = new Set<Entity>();
 	readonly pathPreviewTiles = new Set<Entity>();
@@ -69,6 +70,7 @@ export class World {
 		this.localPlayers.delete(entity);
 		this.movements.delete(entity);
 		this.movementQueues.delete(entity);
+		this.movementSequences.delete(entity);
 		this.movingPlayers.delete(entity);
 		this.invalidHoveredTiles.delete(entity);
 		this.pathPreviewTiles.delete(entity);

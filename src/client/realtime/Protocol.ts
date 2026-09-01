@@ -42,6 +42,20 @@ export interface PlayerState {
 	name: string;
 	row: number;
 	column: number;
+	sequence: number;
+}
+
+export interface PlayerMovementState {
+	fromRow: number; fromColumn: number; row: number; column: number;
+	sequence: number; startedAt: number; endsAt: number; finalStep: boolean;
+}
+
+export interface PlayerResyncState extends PlayerState { movement: PlayerMovementState | null; }
+
+export interface PlayersResyncMessage {
+	type: "PLAYERS_RESYNC";
+	serverTime: number;
+	players: PlayerResyncState[];
 }
 
 export interface EnterChannelSuccessMessage {
@@ -62,6 +76,10 @@ export interface PlayerMovedMessage {
 	fromColumn: number;
 	row: number;
 	column: number;
+	sequence: number;
+	startedAt: number;
+	endsAt: number;
+	serverTime: number;
 	/**
 	 * Lang: pt-BR
 	 * Informa se este é o último step da rota autoritativa para o client liberar lock somente após interpolá-lo.
@@ -90,6 +108,7 @@ export type RealtimeMessage = ChannelsStateMessage
 	| PlayerJoinedMessage
 	| PlayerLeftMessage
 	| PlayerMovedMessage
+	| PlayersResyncMessage
 	| SessionReplacedMessage
 	| SessionRevokedMessage;
 
@@ -175,7 +194,31 @@ const isPlayerState = (value: unknown): value is PlayerState => {
 	return isPositiveInteger(player.id)
 		&& typeof player.name === "string"
 		&& isGridRow(player.row)
-		&& isGridColumn(player.column);
+		&& isGridColumn(player.column)
+		&& isNonNegativeInteger(player.sequence);
+};
+
+/** Lang: pt-BR - Valida um passo temporal adjacente e causal. Lang: en-US - Validates an adjacent, causal temporal step. */
+const isPlayerMovementState = (value: unknown): value is PlayerMovementState => {
+	if (!value || typeof value !== "object") return false;
+	const movement = value as Record<string, unknown>;
+
+	return isGridRow(movement.fromRow) && isGridColumn(movement.fromColumn)
+		&& isGridRow(movement.row) && isGridColumn(movement.column)
+		&& isPositiveInteger(movement.sequence)
+		&& isNonNegativeInteger(movement.startedAt) && isNonNegativeInteger(movement.endsAt)
+		&& movement.startedAt < movement.endsAt
+		&& typeof movement.finalStep === "boolean"
+		&& Math.abs(movement.row - movement.fromRow) + Math.abs(movement.column - movement.fromColumn) === 1;
+};
+
+/** Lang: pt-BR - Valida o estado mínimo de reconciliação de um Player. Lang: en-US - Validates a Player's minimal reconciliation state. */
+const isPlayerResyncState = (value: unknown): value is PlayerResyncState => {
+	if (!isPlayerState(value)) return false;
+	const player = value as unknown as Record<string, unknown>;
+
+	return player.movement === null || (isPlayerMovementState(player.movement)
+		&& (player.movement as PlayerMovementState).sequence === player.sequence);
 };
 
 /**
@@ -216,12 +259,8 @@ export function parseRealtimeMessage(data: string): RealtimeMessage | null {
 		if (
 			message.type === "PLAYER_MOVED"
 			&& isPositiveInteger(message.playerId)
-			&& isGridRow(message.fromRow)
-			&& isGridColumn(message.fromColumn)
-			&& isGridRow(message.row)
-			&& isGridColumn(message.column)
-			&& typeof message.finalStep === "boolean"
-			&& Math.abs(message.row - message.fromRow) + Math.abs(message.column - message.fromColumn) === 1
+			&& isPlayerMovementState(message)
+			&& isNonNegativeInteger(message.serverTime)
 		) {
 			return {
 				type: "PLAYER_MOVED",
@@ -230,8 +269,17 @@ export function parseRealtimeMessage(data: string): RealtimeMessage | null {
 				fromColumn: message.fromColumn,
 				row: message.row,
 				column: message.column,
+				sequence: message.sequence,
+				startedAt: message.startedAt,
+				endsAt: message.endsAt,
+				serverTime: message.serverTime,
 				finalStep: message.finalStep,
 			};
+		}
+
+		if (message.type === "PLAYERS_RESYNC" && isNonNegativeInteger(message.serverTime)
+			&& Array.isArray(message.players) && message.players.every(isPlayerResyncState)) {
+			return { type: "PLAYERS_RESYNC", serverTime: message.serverTime, players: message.players };
 		}
 
 		if (message.type === "SESSION_REPLACED") {

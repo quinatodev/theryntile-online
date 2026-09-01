@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { HoverSystem } from "./HoverSystem.js";
-import { SelectSystem } from "./SelectSystem.js";
+import { canSelectTile, SelectSystem } from "./SelectSystem.js";
 import { WalkHintSystem } from "./WalkHintSystem.js";
 import { World } from "../World.js";
 import { CLIENT_CONFIG } from "../../game/ClientConfig.js";
@@ -91,6 +91,18 @@ test("SelectSystem preserves the current destination while route, path, or runti
 	world.gridPositions.set(player, { column: 1, row: 0 });
 	assert.equal(system.select(world, TEST_MAP, TEST_TILE_DEFINITIONS, second, 1, maxSteps), second);
 	assert.deepEqual([...world.selectedTiles], [second]);
+});
+
+test("clickability matches selection for valid, selected, out-of-range, blocked, and route-locked Tiles", () => {
+	const { first, second, world } = createTileWorld();
+	assert.equal(canSelectTile(world, TEST_MAP, TEST_TILE_DEFINITIONS, first, 1, 5), true);
+	assert.equal(canSelectTile(world, TEST_MAP, TEST_TILE_DEFINITIONS, first, undefined, 5), false);
+	assert.equal(canSelectTile(world, TEST_MAP, TEST_TILE_DEFINITIONS, first, 6, 5), false);
+	assert.equal(canSelectTile(world, TEST_MAP, TEST_TILE_DEFINITIONS, first, 1, 5, true), false);
+	world.selectedTiles.add(first);
+	assert.equal(canSelectTile(world, TEST_MAP, TEST_TILE_DEFINITIONS, first, 1, 5), false);
+	world.gridPositions.set(second, { row: 4, column: 4 });
+	assert.equal(canSelectTile(world, TEST_MAP, TEST_TILE_DEFINITIONS, second, 1, 5), false);
 });
 
 test("blocked multi-layer cells have no Hover click-through to their ground Tile", () => {

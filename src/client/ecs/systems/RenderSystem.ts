@@ -124,12 +124,19 @@ export const getRenderableRenderOrder = (
 	tieBreaker,
 });
 
-/** Lang: pt-BR - Troca a célula de sorting somente após metade do step. Lang: en-US - Switches the sorting cell only after half a step. */
+/**
+ * Lang: pt-BR
+ * Deriva somente a célula visual de sorting: GridPosition lógico permanece intocado enquanto o midpoint troca origem por destino.
+ * Lang: en-US
+ * Derives only the visual sorting cell: logical GridPosition remains untouched while the midpoint switches origin to destination.
+ */
 export const getMovementSortingGrid = (
 	gridPosition: GridPosition,
 	movement: MovementComponent | undefined,
-): GridPosition => movement && movement.progress < 0.5
-	? { column: movement.fromColumn, row: movement.fromRow }
+): GridPosition => movement
+	? movement.progress < 0.5
+		? { column: movement.fromColumn, row: movement.fromRow }
+		: { column: movement.targetColumn, row: movement.targetRow }
 	: gridPosition;
 
 /** Lang: pt-BR - Coloca feedback imediatamente acima do ground. Lang: en-US - Places feedback immediately above ground. */

@@ -214,7 +214,7 @@ export async function createServer(): Promise<FastifyInstance> {
 			if (!session) return reply.code(401).send({ error: "UNAUTHENTICATED" });
 			const result = await database.query<{ zoom: number }>("SELECT zoom FROM accounts WHERE id = $1", [session.accountId]);
 			const zoom = result.rows[0]?.zoom;
-			if (!Number.isInteger(zoom)) throw new Error("Account zoom is unavailable.");
+			if (!Number.isFinite(zoom)) throw new Error("Account zoom is unavailable.");
 
 			return createGameBootstrapPayload(zoom);
 		} catch (error) {
@@ -226,10 +226,10 @@ export async function createServer(): Promise<FastifyInstance> {
 
 	/**
 	 * Lang: pt-BR
-	 * Persiste apenas um nÃ­vel discreto permitido, sem aceitar accountId escolhido pelo client.
+	 * Persiste apenas um zoom finito dentro dos limites, sem aceitar accountId escolhido pelo client.
 	 *
 	 * Lang: en-US
-	 * Persists only an allowed discrete level without accepting a client-selected accountId.
+	 * Persists only a finite zoom within bounds without accepting a client-selected accountId.
 	 */
 	server.put("/game/preferences/zoom", async (request, reply) => {
 		const token = request.cookies[SESSION_COOKIE_NAME];

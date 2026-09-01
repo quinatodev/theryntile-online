@@ -17,6 +17,9 @@ test("GAME_CONFIG exposes valid adjustable ranges and clamps zoom through their 
 	assert.equal(clampZoom(GAME_CONFIG.zoom.min), GAME_CONFIG.zoom.min);
 	assert.equal(isAllowedZoom(GAME_CONFIG.zoom.min), true);
 	assert.equal(isAllowedZoom(GAME_CONFIG.zoom.max), true);
+	assert.equal(isAllowedZoom(GAME_CONFIG.zoom.min + 0.25), true);
+	assert.equal(isAllowedZoom(Number.NaN), false);
+	assert.equal(isAllowedZoom(Number.POSITIVE_INFINITY), false);
 	assert.equal(isAllowedZoom(GAME_CONFIG.zoom.min - 1), false);
 	assert.equal(isAllowedZoom(GAME_CONFIG.zoom.max + 1), false);
 });

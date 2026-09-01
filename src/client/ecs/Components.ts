@@ -51,9 +51,11 @@ export interface MovementComponent {
 	 * Marks the final authoritative step so the lock is released and Idle resumes only after its interpolation.
 	 */
 	finalStep: boolean;
+	endsAt?: number;
 	fromColumn: number;
 	fromRow: number;
 	progress: number;
+	sequence?: number;
 	startedAt?: number;
 	startX: number;
 	startY: number;
@@ -72,10 +74,13 @@ export interface MovementComponent {
  */
 export interface MovementStep {
 	column: number;
+	endsAt?: number;
 	finalStep: boolean;
 	fromColumn: number;
 	fromRow: number;
 	row: number;
+	sequence?: number;
+	startedAt?: number;
 }
 
 export interface PointerPosition {
@@ -89,4 +94,5 @@ export interface PlayerSnapshot {
 	id: number;
 	name: string;
 	row: number;
+	sequence?: number;
 }

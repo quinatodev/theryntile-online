@@ -16,6 +16,7 @@ import {
 	type EnterChannelSuccessMessage,
 	type MoveMessage,
 	type PlayerMovedMessage,
+	type PlayersResyncMessage,
 	type PlayerState,
 } from "./Protocol.js";
 
@@ -30,6 +31,7 @@ interface RealtimeCallbacks {
 	onPlayerJoined(player: PlayerState): void;
 	onPlayerLeft(playerId: number): void;
 	onPlayerMoved(message: PlayerMovedMessage): void;
+	onPlayersResync?(message: PlayersResyncMessage): void;
 	onSessionReplaced(): void;
 	onSessionRevoked(): void;
 	onUnauthenticated(): void;
@@ -40,6 +42,7 @@ export interface Realtime {
 	close(): void;
 	enterChannel(channelId: number): boolean;
 	move(row: number, column: number): boolean;
+	requestPlayersResync(): boolean;
 }
 
 /**
@@ -110,6 +113,8 @@ export function createRealtime(callbacks: RealtimeCallbacks): Realtime {
 				callbacks.onPlayerLeft(message.playerId);
 			} else if (message?.type === "PLAYER_MOVED") {
 				callbacks.onPlayerMoved(message);
+			} else if (message?.type === "PLAYERS_RESYNC") {
+				callbacks.onPlayersResync?.(message);
 			} else if (message?.type === "SESSION_REPLACED") {
 				callbacks.onSessionReplaced();
 			} else if (message?.type === "SESSION_REVOKED") {
@@ -281,5 +286,13 @@ export function createRealtime(callbacks: RealtimeCallbacks): Realtime {
 		return true;
 	};
 
-	return { connect, close, enterChannel, move };
+	/** Lang: pt-BR - Solicita uma reconciliação pontual pelo socket admitido. Lang: en-US - Requests one admitted-socket reconciliation. */
+	const requestPlayersResync = () => {
+		if (!enteredChannel || socket?.readyState !== WebSocket.OPEN) return false;
+		socket.send(JSON.stringify({ type: "RESYNC_PLAYERS" }));
+
+		return true;
+	};
+
+	return { connect, close, enterChannel, move, requestPlayersResync };
 }

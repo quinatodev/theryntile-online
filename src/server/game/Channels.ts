@@ -37,7 +37,14 @@ export interface AuthenticatedPlayer {
 interface ChannelPlayer extends AuthenticatedPlayer {
 	row: number;
 	column: number;
+	sequence: number;
+	movement: AuthoritativeMovementStep | null;
 	socket: ChannelSocket;
+}
+
+interface AuthoritativeMovementStep {
+	fromRow: number; fromColumn: number; row: number; column: number;
+	sequence: number; startedAt: number; endsAt: number; finalStep: boolean;
 }
 
 export interface RuntimeChannel extends ChannelRow {
@@ -61,7 +68,10 @@ const activeRoutes = new RouteState<ChannelSocket>();
 const claimInitialization = createInitializationGuard();
 
 /** Lang: pt-BR - Limita o snapshot público aos campos de presença. Lang: en-US - Restricts the public snapshot to presence fields. */
-const serializePlayer = ({ id, name, row, column }: ChannelPlayer) => ({ id, name, row, column });
+const serializePlayer = ({ id, name, row, column, sequence }: ChannelPlayer) => ({ id, name, row, column, sequence });
+
+/** Lang: pt-BR - Expõe somente estado lógico e passo temporal atual no resync. Lang: en-US - Exposes only logical state and the current temporal step during resync. */
+const serializePlayerResync = (player: ChannelPlayer) => ({ ...serializePlayer(player), movement: player.movement });
 
 /**
  * Lang: pt-BR
@@ -139,7 +149,7 @@ const enterChannel = (socket: ChannelSocket, identity: AuthenticatedPlayer, chan
 	// Spawn is resolved before mutation; free tiles are preferred, but stacking is a valid fallback.
 	const spawn = getRandomSpawn(channel.players);
 
-	const player: ChannelPlayer = { ...identity, ...spawn, socket };
+	const player: ChannelPlayer = { ...identity, ...spawn, sequence: 0, movement: null, socket };
 
 	channel.members.add(socket);
 	channel.players.push(player);
@@ -187,14 +197,23 @@ const movePlayer = (socket: ChannelSocket, row: number, column: number) => {
 		if (!step) return;
 		const fromRow = player.row;
 		const fromColumn = player.column;
-		player.row = step.row;
-		player.column = step.column;
+		const startedAt = Date.now();
+		const movement: AuthoritativeMovementStep = {
+			fromRow, fromColumn, row: step.row, column: step.column,
+			sequence: player.sequence + 1, startedAt, endsAt: startedAt + MOVEMENT_STEP_MS,
+			finalStep: steps.length === 0,
+		};
+		player.sequence = movement.sequence;
+		player.movement = movement;
 		sendToChannel(channel, {
-			type: "PLAYER_MOVED", playerId: player.id, fromRow, fromColumn,
-			row: step.row, column: step.column, finalStep: steps.length === 0,
+			type: "PLAYER_MOVED", playerId: player.id, ...movement, serverTime: startedAt,
 		});
 		const timer = setTimeout(() => {
-			if (steps.length === 0) activeRoutes.cancel(socket);
+			if (!activeRoutes.has(socket) || player.movement?.sequence !== movement.sequence) return;
+			player.row = movement.row;
+			player.column = movement.column;
+			player.movement = null;
+			if (movement.finalStep) activeRoutes.cancel(socket);
 			else emitNextStep();
 		}, MOVEMENT_STEP_MS);
 		activeRoutes.setTimer(socket, timer);
@@ -241,6 +260,18 @@ const handleMessage = (socket: ChannelSocket, identity: AuthenticatedPlayer, dat
 			&& keys.includes("column")
 		) {
 			movePlayer(socket, Number(message.row), Number(message.column));
+
+			return;
+		}
+
+		if (message.type === "RESYNC_PLAYERS" && keys.length === 1) {
+			const channel = channels.find(({ members }) => members.has(socket));
+			if (!channel) return;
+			socket.send(JSON.stringify({
+				type: "PLAYERS_RESYNC",
+				serverTime: Date.now(),
+				players: channel.players.map(serializePlayerResync),
+			}));
 		}
 	} catch {
 		rejectEntry(socket, "INVALID_REQUEST");

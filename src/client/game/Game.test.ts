@@ -39,6 +39,7 @@ const createGameHarness = () => {
 		getBoundingClientRect: () => ({ bottom: 360, height: 360, left: 0, right: 640, top: 0, width: 640, x: 0, y: 0, toJSON() {} }),
 		getContext: () => context,
 		height: 360,
+		style: {},
 		removeEventListener: (type: string, listener: EventListenerOrEventListenerObject) => remove(canvasListeners, type, listener),
 		width: 640,
 	} as unknown as HTMLCanvasElement;
@@ -54,8 +55,13 @@ const createGameHarness = () => {
 			return id; },
 		setTimeout,
 	};
+	const fakeDocument = {
+		addEventListener: (type: string, listener: EventListenerOrEventListenerObject) => add(windowListeners, type, listener),
+		removeEventListener: (type: string, listener: EventListenerOrEventListenerObject) => remove(windowListeners, type, listener),
+		visibilityState: "visible",
+	};
 
-	return { cancelled, canvas, canvasListeners, drawCalls, fakeWindow, frames, windowListeners };
+	return { cancelled, canvas, canvasListeners, drawCalls, fakeDocument, fakeWindow, frames, windowListeners };
 };
 
 test("fatal frame failure performs cleanup, reports once, and prevents continuation", () => {
@@ -103,20 +109,38 @@ test("Game integrates JOIN, duplicate replacement, LEFT, listeners, RAF, movemen
 	const harness = createGameHarness();
 	const previousImage = globalThis.Image;
 	const previousWindow = globalThis.window;
-	Object.assign(globalThis, { Image: FakeImage, window: harness.fakeWindow });
+	const previousDocument = globalThis.document;
+	Object.assign(globalThis, { Image: FakeImage, document: harness.fakeDocument, window: harness.fakeWindow });
 	try {
+		let resyncRequests = 0;
+		const savedZooms: number[] = [];
 		const game = await startGame(
 			harness.canvas,
 			{ id: 1, name: "Local", row: 0, column: 0 },
 			[{ id: 2, name: "Remote A", row: 0, column: 0 }],
 			() => true,
 			{ map: { 0: [[1]] }, mapId: "test", movement: { maxSteps: 2 }, tileDefinitions: { 1: true }, zoom: { max: 2, min: 1 }, zoomPreference: 1 },
-			async () => {},
+			async (zoom) => { savedZooms.push(zoom); },
+			() => {},
+			() => { resyncRequests += 1;
+
+				return true; },
 		);
 		game.start();
-		assert.equal([...harness.windowListeners.values()].reduce((count, listeners) => count + listeners.size, 0), 1);
+		assert.equal([...harness.windowListeners.values()].reduce((count, listeners) => count + listeners.size, 0), 2);
 		assert.equal([...harness.canvasListeners.values()].reduce((count, listeners) => count + listeners.size, 0), 4);
 		assert.equal(harness.frames.size, 1);
+		const wheel = [...harness.canvasListeners.get("wheel") ?? []][0];
+		assert.ok(wheel);
+		wheel({ deltaY: -120, preventDefault() {} } as WheelEvent);
+		wheel({ deltaY: -1, preventDefault() {} } as WheelEvent);
+		await new Promise((resolve) => setTimeout(resolve, 350));
+		assert.deepEqual(savedZooms, [1.5]);
+		wheel({ deltaY: 80, preventDefault() {} } as WheelEvent);
+		await new Promise((resolve) => setTimeout(resolve, 350));
+		assert.deepEqual(savedZooms, [1.5, 1.25]);
+		for (const listener of harness.windowListeners.get("visibilitychange") ?? []) listener(new Event("visibilitychange"));
+		assert.equal(resyncRequests, 1);
 
 		harness.drawCalls.length = 0;
 		game.playerJoined({ id: 3, name: "Remote B", row: 0, column: 0 });
@@ -127,11 +151,12 @@ test("Game integrates JOIN, duplicate replacement, LEFT, listeners, RAF, movemen
 		harness.drawCalls.length = 0;
 		game.playerLeft(2);
 		assert.equal(harness.drawCalls.length, 3);
-		game.playerMoved({ playerId: 3, fromRow: 0, fromColumn: 0, row: 0, column: 0, finalStep: true });
+		game.playerMoved({ playerId: 3, fromRow: 0, fromColumn: 0, row: 0, column: 0, sequence: 1, startedAt: 0, endsAt: 500, serverTime: 0, finalStep: true });
 
 		const scheduled = [...harness.frames.entries()][0];
 		assert.ok(scheduled);
 		game.dispose();
+		assert.equal(harness.canvas.style.cursor, "default");
 		assert.equal(harness.frames.size, 0);
 		assert.deepEqual(harness.cancelled, [scheduled[0]]);
 		assert.equal([...harness.windowListeners.values()].every((listeners) => listeners.size === 0), true);
@@ -141,6 +166,6 @@ test("Game integrates JOIN, duplicate replacement, LEFT, listeners, RAF, movemen
 		game.playerJoined({ id: 4, name: "After dispose", row: 0, column: 0 });
 		assert.equal(harness.frames.size, 0);
 	} finally {
-		Object.assign(globalThis, { Image: previousImage, window: previousWindow });
+		Object.assign(globalThis, { Image: previousImage, document: previousDocument, window: previousWindow });
 	}
 });

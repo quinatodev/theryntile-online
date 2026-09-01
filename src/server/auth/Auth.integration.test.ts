@@ -197,6 +197,25 @@ test("concurrent HTTP logins leave one winner and Auth routes honor cookie lifec
 	assert.equal((await server.inject({ method: "GET", url: "/auth/session", headers: { cookie } })).statusCode, 401);
 });
 
+test("zoom preference persists and restores fractional values while rejecting invalid input", async () => {
+	const schema = await pool.query<{ data_type: string; column_default: string; is_nullable: string }>(
+		"SELECT data_type, column_default, is_nullable FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'accounts' AND column_name = 'zoom'",
+	);
+	assert.deepEqual(schema.rows[0], { data_type: "double precision", column_default: "1", is_nullable: "NO" });
+	const cookie = await loginCookie(fixtureUsernames[2]);
+	const persisted = await server.inject({ method: "PUT", url: "/game/preferences/zoom", headers: { cookie }, payload: { zoom: 2.25 } });
+	assert.equal(persisted.statusCode, 200);
+	const stored = await pool.query<{ zoom: number }>("SELECT zoom FROM accounts WHERE username = $1", [fixtureUsernames[2]]);
+	assert.equal(stored.rows[0]?.zoom, 2.25);
+	const restored = await server.inject({ method: "GET", url: "/game/config", headers: { cookie } });
+	assert.equal(restored.statusCode, 200);
+	assert.equal((restored.json() as { zoomPreference: number }).zoomPreference, 2.25);
+	for (const zoom of ["2.25", 1.99, 5.01]) {
+		const rejected = await server.inject({ method: "PUT", url: "/game/preferences/zoom", headers: { cookie }, payload: { zoom } });
+		assert.equal(rejected.statusCode, 400);
+	}
+});
+
 test("WebSocket upgrade accepts only a currently persisted session", async () => {
 	const { createSession, revokeSession } = await import("./Session.js");
 	const active = await createSession(secondaryAccountId);
@@ -270,14 +289,24 @@ test("Channels integrates admission, capacity, presence, cleanup, broadcasts, mo
 		}
 		const target = candidates[0];
 		assert.ok(target);
+		const firstMoved = messagesOfType(socketB, "PLAYER_MOVED");
 		const moved = messagesOfType(socketB, "PLAYER_MOVED", 2);
 		socketA.send(JSON.stringify({ type: "MOVE", ...target }));
 		socketA.send(JSON.stringify({ type: "MOVE", row: playerA.row, column: playerA.column }));
+		const firstStep = (await firstMoved)[0];
+		const resync = messagesOfType(socketA, "PLAYERS_RESYNC");
+		socketA.send(JSON.stringify({ type: "RESYNC_PLAYERS" }));
+		const movingSnapshot = ((await resync)[0]?.players as Array<Record<string, unknown>>).find(({ id }) => id === playerA.id);
+		assert.deepEqual({ row: movingSnapshot?.row, column: movingSnapshot?.column }, { row: playerA.row, column: playerA.column });
+		assert.equal((movingSnapshot?.movement as Record<string, unknown>)?.sequence, firstStep?.sequence);
 		const steps = await moved;
 		assert.equal(steps[0]?.playerId, playerA.id);
 		assert.equal(steps[0]?.fromRow, playerA.row);
 		assert.equal(steps[0]?.fromColumn, playerA.column);
 		assert.equal(steps[0]?.finalStep, false);
+		assert.equal(Number(steps[0]?.sequence) + 1, steps[1]?.sequence);
+		assert.equal(Number(steps[0]?.startedAt) < Number(steps[0]?.endsAt), true);
+		assert.equal(Number(steps[0]?.endsAt) <= Number(steps[1]?.startedAt), true);
 		assert.equal(steps[1]?.fromRow, steps[0]?.row);
 		assert.equal(steps[1]?.fromColumn, steps[0]?.column);
 		assert.deepEqual({ row: steps[1]?.row, column: steps[1]?.column }, target);

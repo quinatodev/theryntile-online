@@ -43,7 +43,15 @@ try {
 
 	await database.query(`
 		ALTER TABLE accounts
-		ADD COLUMN IF NOT EXISTS zoom INTEGER NOT NULL DEFAULT 1
+		ADD COLUMN IF NOT EXISTS zoom DOUBLE PRECISION NOT NULL DEFAULT 1
+	`);
+	// Lang: pt-BR
+	// DOUBLE PRECISION preserva contas existentes e representa quarters exatamente sem truncamento de INTEGER.
+	// Lang: en-US
+	// DOUBLE PRECISION preserves existing accounts and represents quarters exactly without INTEGER truncation.
+	await database.query(`
+		ALTER TABLE accounts
+		ALTER COLUMN zoom TYPE DOUBLE PRECISION USING zoom::double precision
 	`);
 	await database.query("UPDATE accounts SET zoom = 1 WHERE zoom <= 0");
 	await database.query(`

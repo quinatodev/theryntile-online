@@ -338,6 +338,7 @@ const realtime = createRealtime({
 					realtime.close();
 					showLogin(GAME_START_FAILED_MESSAGE);
 				},
+				() => realtime.requestPlayersResync(),
 			);
 
 			// Lang: pt-BR
@@ -399,6 +400,10 @@ const realtime = createRealtime({
 	onPlayerMoved(message) {
 		if (game) game.playerMoved(message);
 		else if (root.dataset.state === "loading") loadingPlayerEvents.push({ type: "moved", message });
+	},
+	/** Lang: pt-BR - Encaminha o resync pontual somente ao Game ativo. Lang: en-US - Forwards one-shot resync only to the active Game. */
+	onPlayersResync(message) {
+		game?.playersResync(message);
 	},
 
 	// Lang: pt-BR

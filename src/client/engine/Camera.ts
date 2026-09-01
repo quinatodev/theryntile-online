@@ -16,5 +16,6 @@ export interface Camera { x: number; y: number; zoom: number; }
  */
 export function changeCameraZoom(camera: Camera, wheelDelta: number, min: number, max: number): void {
 	const direction = wheelDelta > 0 ? -1 : 1;
-	camera.zoom = Math.max(min, Math.min(max, Math.round(camera.zoom) + direction));
+	const quarterUnits = Math.round(camera.zoom * 4) + direction;
+	camera.zoom = Math.max(min, Math.min(max, quarterUnits / 4));
 }

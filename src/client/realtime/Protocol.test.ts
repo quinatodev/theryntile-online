@@ -35,6 +35,10 @@ test("player moved accepts an authoritative adjacent transition", () => {
 		fromColumn: 2,
 		row: 2,
 		column: 3,
+		sequence: 7,
+		startedAt: 1_000,
+		endsAt: 1_500,
+		serverTime: 1_100,
 		finalStep: true,
 	})), {
 		type: "PLAYER_MOVED",
@@ -43,16 +47,29 @@ test("player moved accepts an authoritative adjacent transition", () => {
 		fromColumn: 2,
 		row: 2,
 		column: 3,
+		sequence: 7,
+		startedAt: 1_000,
+		endsAt: 1_500,
+		serverTime: 1_100,
 		finalStep: true,
 	});
+});
+
+test("players resync validates stopped and active temporal states", () => {
+	const message = { type: "PLAYERS_RESYNC", serverTime: 1_250, players: [
+		{ id: 1, name: "Stopped", row: 2, column: 2, sequence: 4, movement: null },
+		{ id: 2, name: "Moving", row: 1, column: 1, sequence: 7, movement: { fromRow: 1, fromColumn: 1, row: 1, column: 2, sequence: 7, startedAt: 1_000, endsAt: 1_500, finalStep: true } },
+	] } as const;
+	assert.deepEqual(parseRealtimeMessage(JSON.stringify(message)), message);
+	assert.equal(parseRealtimeMessage(JSON.stringify({ ...message, players: [{ ...message.players[1], sequence: 8 }] })), null);
 });
 
 test("multiplayer lifecycle messages retain their validated observable payloads", () => {
 	const messages = [
 		{ type: "CHANNEL_POPULATION", channelId: 1, population: 7 },
-		{ type: "ENTER_CHANNEL_SUCCESS", channelId: 1, player: { id: 1, name: "Local", row: 2, column: 3 }, players: [{ id: 2, name: "Remote", row: 3, column: 3 }] },
+		{ type: "ENTER_CHANNEL_SUCCESS", channelId: 1, player: { id: 1, name: "Local", row: 2, column: 3, sequence: 0 }, players: [{ id: 2, name: "Remote", row: 3, column: 3, sequence: 4 }] },
 		{ type: "ENTER_CHANNEL_REJECTED", reason: "CHANNEL_FULL" },
-		{ type: "PLAYER_JOINED", player: { id: 2, name: "Remote", row: 3, column: 3 } },
+		{ type: "PLAYER_JOINED", player: { id: 2, name: "Remote", row: 3, column: 3, sequence: 0 } },
 		{ type: "PLAYER_LEFT", playerId: 2 },
 		{ type: "SESSION_REPLACED" },
 	] as const;
@@ -69,6 +86,18 @@ for (const message of [
 ]) {
 	test(`player moved rejects malformed state: ${JSON.stringify(message)}`, () => {
 		assert.equal(parseRealtimeMessage(JSON.stringify(message)), null);
+	});
+}
+
+for (const temporal of [
+	{ sequence: 0, startedAt: 1_000, endsAt: 1_500, serverTime: 1_100 },
+	{ sequence: 1, startedAt: 1_500, endsAt: 1_500, serverTime: 1_500 },
+	{ sequence: 1, startedAt: 1_500, endsAt: 1_000, serverTime: 1_200 },
+]) {
+	test(`player moved rejects invalid temporal invariants: ${JSON.stringify(temporal)}`, () => {
+		assert.equal(parseRealtimeMessage(JSON.stringify({
+			type: "PLAYER_MOVED", playerId: 1, fromRow: 2, fromColumn: 2, row: 2, column: 3, finalStep: true, ...temporal,
+		})), null);
 	});
 }
 
