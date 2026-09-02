@@ -18,6 +18,14 @@ export const GAME_CONFIG = {
 } as const;
 
 export const INITIAL_MAP_ID: keyof typeof GAME_CONFIG.maps = "lobby";
+export const INVENTORY_POSITION_LIMIT = 10_000;
+export const INVENTORY_COLUMNS_MAX = 6;
+export const INVENTORY_COLUMNS_MIN = 4;
+
+export interface InventoryPositionPreference {
+	x: number;
+	y: number;
+}
 
 /**
  * Lang: pt-BR
@@ -26,19 +34,35 @@ export const INITIAL_MAP_ID: keyof typeof GAME_CONFIG.maps = "lobby";
  * Lang: en-US
  * Serializes only the initial map and settings required by the Game, never the whole registry.
  */
-export const createGameBootstrapPayload = (zoomPreference: number) => {
+export const createGameBootstrapPayload = (
+	zoomPreference: number,
+	inventoryPosition: InventoryPositionPreference | null = null,
+	inventoryColumns = INVENTORY_COLUMNS_MIN,
+) => {
 	const map = GAME_CONFIG.maps[INITIAL_MAP_ID];
 	validateMapDefinition(map);
 
 	return {
+		inventoryColumns,
 		map,
 		mapId: INITIAL_MAP_ID,
 		movement: GAME_CONFIG.movement,
+		inventoryPosition,
 		tileDefinitions: getTileDefinitions(),
 		zoom: GAME_CONFIG.zoom,
 		zoomPreference: clampZoom(zoomPreference),
 	};
 };
+
+/** Lang: pt-BR - Aceita somente as três larguras discretas suportadas pela Backpack. Lang: en-US - Accepts only the three discrete widths supported by the Backpack. */
+export const isAllowedInventoryColumns = (columns: unknown): columns is number => Number.isSafeInteger(columns)
+	&& (columns as number) >= INVENTORY_COLUMNS_MIN
+	&& (columns as number) <= INVENTORY_COLUMNS_MAX;
+
+/** Lang: pt-BR - Limita coordenadas persistidas a pixels inteiros não negativos defensivos. Lang: en-US - Restricts persisted coordinates to defensive non-negative integer pixels. */
+export const isAllowedInventoryCoordinate = (coordinate: unknown): coordinate is number => Number.isSafeInteger(coordinate)
+	&& (coordinate as number) >= 0
+	&& (coordinate as number) <= INVENTORY_POSITION_LIMIT;
 
 /**
  * Lang: pt-BR

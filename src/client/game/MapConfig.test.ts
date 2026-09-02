@@ -6,6 +6,8 @@ import { parseGameBootstrapConfig, parseRuntimeMap } from "./MapConfig.js";
 
 /** Lang: pt-BR - Cria payload válido para mutações focadas. Lang: en-US - Creates a valid payload for focused mutations. */
 const createSerializedNewbiePayload = () => ({
+	inventoryColumns: 4,
+	inventoryPosition: null,
 	map: {
 		0: Array.from({ length: 11 }, () => Array<number>(11).fill(1)),
 		1: Array.from({ length: 11 }, (_, row) => Array.from(
@@ -21,6 +23,8 @@ test("runtime config accepts a serialized Newbie payload and clamps persisted zo
 	assert.equal(parseGameBootstrapConfig(payload).mapId, "lobby");
 	assert.equal(parseGameBootstrapConfig({ ...payload, zoomPreference: 99 }).zoomPreference, 3);
 	assert.equal(parseGameBootstrapConfig({ ...payload, zoomPreference: 2.25 }).zoomPreference, 2.25);
+	assert.deepEqual(parseGameBootstrapConfig({ ...payload, inventoryPosition: { x: 120, y: 80 } }).inventoryPosition, { x: 120, y: 80 });
+	for (const inventoryColumns of [4, 5, 6]) assert.equal(parseGameBootstrapConfig({ ...payload, inventoryColumns }).inventoryColumns, inventoryColumns);
 });
 
 test("runtime map parser rejects every malformed structural class", () => {
@@ -45,6 +49,12 @@ test("bootstrap parser reports the exact invalid field without weakening validat
 	assert.throws(() => parseGameBootstrapConfig({ ...payload, tileDefinitions: undefined }), /tileDefinitions/);
 	assert.throws(() => parseGameBootstrapConfig({ ...payload, zoom: undefined }), /zoom/);
 	assert.throws(() => parseGameBootstrapConfig({ ...payload, zoomPreference: "1" }), /zoomPreference/);
+	for (const inventoryPosition of [undefined, { x: -1, y: 0 }, { x: 1.5, y: 0 }, { x: 0, y: "1" }]) {
+		assert.throws(() => parseGameBootstrapConfig({ ...payload, inventoryPosition }), /inventoryPosition/);
+	}
+	for (const inventoryColumns of [undefined, null, "4", 3, 4.5, 7]) {
+		assert.throws(() => parseGameBootstrapConfig({ ...payload, inventoryColumns }), /inventoryColumns/);
+	}
 });
 
 test("camera zoom moves in normalized quarters inside runtime limits", () => {

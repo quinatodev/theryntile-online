@@ -1,6 +1,8 @@
 import { getMapTileIds, type RuntimeMap, type RuntimeTileDefinitions } from "./Map.js";
 
 export interface GameRuntimeConfig {
+	inventoryColumns: number;
+	inventoryPosition: { x: number; y: number } | null;
 	map: RuntimeMap;
 	mapId: string;
 	movement: { maxSteps: number };
@@ -74,6 +76,10 @@ export function parseGameBootstrapConfig(value: unknown): GameRuntimeConfig {
 	const response = value as Record<string, unknown>;
 	const movement = response.movement as Record<string, unknown> | undefined;
 	const zoom = response.zoom as Record<string, unknown> | undefined;
+	const inventoryPosition = response.inventoryPosition as Record<string, unknown> | null | undefined;
+	if (!isInteger(response.inventoryColumns) || response.inventoryColumns < 4 || response.inventoryColumns > 6) {
+		throw new Error("Invalid game configuration: inventoryColumns must be an integer between 4 and 6.");
+	}
 	if (typeof response.mapId !== "string" || response.mapId.length === 0) throw new Error("Invalid game configuration: mapId must be a non-empty string.");
 	if (!("map" in response)) throw new Error("Invalid game configuration: map is missing.");
 	if (!movement || typeof movement !== "object") throw new Error("Invalid game configuration: movement is missing or invalid.");
@@ -81,6 +87,14 @@ export function parseGameBootstrapConfig(value: unknown): GameRuntimeConfig {
 	if (!zoom || typeof zoom !== "object") throw new Error("Invalid game configuration: zoom is missing or invalid.");
 	if (!isInteger(zoom.min) || !isInteger(zoom.max) || zoom.min > zoom.max) throw new Error("Invalid game configuration: zoom limits must be ordered safe integers.");
 	if (typeof response.zoomPreference !== "number" || !Number.isFinite(response.zoomPreference)) throw new Error("Invalid game configuration: zoomPreference must be finite.");
+	if (inventoryPosition !== null && (
+		!inventoryPosition
+		|| typeof inventoryPosition !== "object"
+		|| !isInteger(inventoryPosition.x)
+		|| inventoryPosition.x < 0
+		|| !isInteger(inventoryPosition.y)
+		|| inventoryPosition.y < 0
+	)) throw new Error("Invalid game configuration: inventoryPosition must be null or contain non-negative safe integer coordinates.");
 
 	const map = parseRuntimeMap(response.map);
 	const tileDefinitions = parseTileDefinitions(response.tileDefinitions);
@@ -89,6 +103,8 @@ export function parseGameBootstrapConfig(value: unknown): GameRuntimeConfig {
 	}
 
 	return {
+		inventoryColumns: response.inventoryColumns,
+		inventoryPosition: inventoryPosition === null ? null : { x: inventoryPosition.x as number, y: inventoryPosition.y as number },
 		map,
 		mapId: response.mapId,
 		movement: { maxSteps: movement.maxSteps },

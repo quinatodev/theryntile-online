@@ -11,6 +11,8 @@ import { type ChannelState, type EnterChannelRejectionReason, type PlayerMovedMe
 import { startGame, type Game } from "../game/Game.js";
 import { createRealtime } from "../realtime/Realtime.js";
 import { parseGameBootstrapConfig } from "../game/MapConfig.js";
+import { UIManager } from "../ui/UIManager.js";
+import { type InventoryPosition } from "../ui/inventory/Backpack.js";
 
 interface LoginResponse {
 	player: { id: number; name: string };
@@ -39,8 +41,9 @@ const loadingSection = root?.querySelector<HTMLElement>("[data-view='loading']")
 const loadingMessage = root?.querySelector<HTMLElement>("[data-role='loading-message']");
 const gameSection = root?.querySelector<HTMLElement>("[data-view='game']");
 const gameCanvas = root?.querySelector<HTMLCanvasElement>("[data-role='game-canvas']");
+const gameUi = root?.querySelector<HTMLElement>("[data-role='game-ui']");
 
-if (!root || !loginSection || !authenticatedSection || !form || !errorMessage || !playerName || !serverList || !submitButton || !playButton || !logoutLink || !loadingSection || !loadingMessage || !gameSection || !gameCanvas) {
+if (!root || !loginSection || !authenticatedSection || !form || !errorMessage || !playerName || !serverList || !submitButton || !playButton || !logoutLink || !loadingSection || !loadingMessage || !gameSection || !gameCanvas || !gameUi) {
 	throw new Error("The login component is incomplete.");
 }
 
@@ -49,6 +52,7 @@ let selectedChannelId: number | null = null;
 let realtimeConnected = false;
 let enterChannelPending = false;
 let game: Game | null = null;
+let ui: UIManager | null = null;
 let loadingPlayerEvents: Array<
 	{ type: "joined"; player: PlayerState }
 	| { type: "left"; playerId: number }
@@ -100,6 +104,8 @@ const invalidateGame = () => {
 
 	game?.dispose();
 	game = null;
+	ui?.dispose();
+	ui = null;
 };
 
 /** Lang: pt-BR - Habilita Play somente com sessão, conexão e channel válidos. Lang: en-US - Enables Play only with valid session, connection, and channel. */
@@ -319,6 +325,41 @@ const realtime = createRealtime({
 				throw new Error(`GAME_CONFIG_FAILED: HTTP ${configResponse.status}; ${responseBody}`);
 			}
 			const bootstrap = parseGameBootstrapConfig(await configResponse.json());
+			let lastPersistedInventoryColumns = bootstrap.inventoryColumns;
+			let inventoryColumnsSave = Promise.resolve();
+			const saveInventoryColumns = (columns: number): void => {
+				inventoryColumnsSave = inventoryColumnsSave.then(async () => {
+					if (columns === lastPersistedInventoryColumns) return;
+					const response = await fetch("/game/preferences/inventory-columns", {
+						body: JSON.stringify({ columns }),
+						headers: { "Content-Type": "application/json" },
+						method: "PUT",
+					});
+					if (!response.ok) throw new Error("INVENTORY_COLUMNS_SAVE_FAILED");
+					lastPersistedInventoryColumns = columns;
+				}).catch((error: unknown) => {
+					console.error("Unable to persist Inventory columns.", error);
+				});
+			};
+			let lastPersistedInventoryPosition = bootstrap.inventoryPosition;
+			let inventoryPositionSave = Promise.resolve();
+			const saveInventoryPosition = (position: InventoryPosition): void => {
+				inventoryPositionSave = inventoryPositionSave.then(async () => {
+					if (
+						position.x === lastPersistedInventoryPosition?.x
+						&& position.y === lastPersistedInventoryPosition.y
+					) return;
+					const response = await fetch("/game/preferences/inventory-position", {
+						body: JSON.stringify(position),
+						headers: { "Content-Type": "application/json" },
+						method: "PUT",
+					});
+					if (!response.ok) throw new Error("INVENTORY_POSITION_SAVE_FAILED");
+					lastPersistedInventoryPosition = position;
+				}).catch((error: unknown) => {
+					console.error("Unable to persist Inventory position.", error);
+				});
+			};
 			const startedGame = await startGame(
 				gameCanvas,
 				message.player,
@@ -363,6 +404,13 @@ const realtime = createRealtime({
 
 			loadingPlayerEvents = [];
 			game = startedGame;
+			ui = new UIManager(
+				gameUi,
+				bootstrap.inventoryColumns,
+				bootstrap.inventoryPosition,
+				saveInventoryColumns,
+				saveInventoryPosition,
+			);
 
 			startedGame.start();
 

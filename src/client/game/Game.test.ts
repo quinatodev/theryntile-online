@@ -95,7 +95,7 @@ test("Game creates one Tile Entity for every non-zero runtime map cell", () => {
 	const world = new World();
 	addTileEntities(world, {
 		map, mapId: "lobby", movement: { maxSteps: 5 }, tileDefinitions: { 1: true, 101: false },
-		zoom: { max: 3, min: 1 }, zoomPreference: 1,
+		zoom: { max: 3, min: 1 }, zoomPreference: 1, inventoryColumns: 4, inventoryPosition: null,
 	});
 	const expectedTextureIds = Object.values(map).flat(2).filter((tileId) => tileId !== 0);
 	assert.equal(world.tiles.size, expectedTextureIds.length);
@@ -119,7 +119,7 @@ test("Game integrates JOIN, duplicate replacement, LEFT, listeners, RAF, movemen
 			{ id: 1, name: "Local", row: 0, column: 0 },
 			[{ id: 2, name: "Remote A", row: 0, column: 0 }],
 			() => true,
-			{ map: { 0: [[1]] }, mapId: "test", movement: { maxSteps: 2 }, tileDefinitions: { 1: true }, zoom: { max: 2, min: 1 }, zoomPreference: 1 },
+			{ map: { 0: [[1]] }, mapId: "test", movement: { maxSteps: 2 }, tileDefinitions: { 1: true }, zoom: { max: 2, min: 1 }, zoomPreference: 1, inventoryColumns: 4, inventoryPosition: null },
 			async (zoom) => { savedZooms.push(zoom); },
 			() => {},
 			() => { resyncRequests += 1;

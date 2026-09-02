@@ -30,7 +30,7 @@ import {
 } from "./auth/Session.js";
 import { addLobbySocket, initializeChannels, replaceAccountConnections, revokeSessionConnections } from "./game/Channels.js";
 import { database } from "./database/Database.js";
-import { createGameBootstrapPayload, isAllowedZoom } from "./game/GameConfig.js";
+import { createGameBootstrapPayload, isAllowedInventoryColumns, isAllowedInventoryCoordinate, isAllowedZoom } from "./game/GameConfig.js";
 
 const sourceRoot = fileURLToPath(new URL("..", import.meta.url));
 const developmentSource = path.basename(sourceRoot) === "src";
@@ -212,13 +212,79 @@ export async function createServer(): Promise<FastifyInstance> {
 		try {
 			const session = token ? await restoreSessionDetails(token) : null;
 			if (!session) return reply.code(401).send({ error: "UNAUTHENTICATED" });
-			const result = await database.query<{ zoom: number }>("SELECT zoom FROM accounts WHERE id = $1", [session.accountId]);
-			const zoom = result.rows[0]?.zoom;
+			const result = await database.query<{ inventory_columns: number; inventory_x: number | null; inventory_y: number | null; zoom: number }>(
+				"SELECT zoom, inventory_x, inventory_y, inventory_columns FROM accounts WHERE id = $1",
+				[session.accountId],
+			);
+			const account = result.rows[0];
+			const zoom = account?.zoom;
 			if (!Number.isFinite(zoom)) throw new Error("Account zoom is unavailable.");
+			if (!isAllowedInventoryColumns(account?.inventory_columns)) throw new Error("Account inventory columns are invalid.");
+			const inventoryX = account?.inventory_x;
+			const inventoryY = account?.inventory_y;
+			let inventoryPosition = null;
+			if (inventoryX !== null || inventoryY !== null) {
+				if (!isAllowedInventoryCoordinate(inventoryX) || !isAllowedInventoryCoordinate(inventoryY)) {
+					throw new Error("Account inventory position is invalid.");
+				}
+				inventoryPosition = { x: inventoryX, y: inventoryY };
+			}
 
-			return createGameBootstrapPayload(zoom);
+			return createGameBootstrapPayload(zoom, inventoryPosition, account.inventory_columns);
 		} catch (error) {
 			request.log.error({ err: error }, "Game configuration failed unexpectedly");
+
+			return reply.code(500).send({ error: "INTERNAL_ERROR" });
+		}
+	});
+
+	/**
+	 * Lang: pt-BR
+	 * Persiste uma posição de Inventory defensivamente limitada para a Account autenticada.
+	 *
+	 * Lang: en-US
+	 * Persists a defensively bounded Inventory position for the authenticated Account.
+	 */
+	server.put("/game/preferences/inventory-position", async (request, reply) => {
+		const token = request.cookies[SESSION_COOKIE_NAME];
+		const body = request.body;
+		if (!body || typeof body !== "object" || Array.isArray(body)) return reply.code(400).send({ error: "INVALID_INVENTORY_POSITION" });
+		const position = body as Record<string, unknown>;
+		if (
+			Object.keys(position).length !== 2
+			|| !isAllowedInventoryCoordinate(position.x)
+			|| !isAllowedInventoryCoordinate(position.y)
+		) return reply.code(400).send({ error: "INVALID_INVENTORY_POSITION" });
+		try {
+			const session = token ? await restoreSessionDetails(token) : null;
+			if (!session) return reply.code(401).send({ error: "UNAUTHENTICATED" });
+			await database.query("UPDATE accounts SET inventory_x = $1, inventory_y = $2 WHERE id = $3", [position.x, position.y, session.accountId]);
+
+			return { success: true };
+		} catch (error) {
+			request.log.error({ err: error }, "Inventory position persistence failed unexpectedly");
+
+			return reply.code(500).send({ error: "INTERNAL_ERROR" });
+		}
+	});
+
+	/** Lang: pt-BR - Persiste somente uma largura discreta da Backpack para a Account autenticada. Lang: en-US - Persists only one discrete Backpack width for the authenticated Account. */
+	server.put("/game/preferences/inventory-columns", async (request, reply) => {
+		const token = request.cookies[SESSION_COOKIE_NAME];
+		const body = request.body;
+		if (!body || typeof body !== "object" || Array.isArray(body)) return reply.code(400).send({ error: "INVALID_INVENTORY_COLUMNS" });
+		const preference = body as Record<string, unknown>;
+		if (Object.keys(preference).length !== 1 || !isAllowedInventoryColumns(preference.columns)) {
+			return reply.code(400).send({ error: "INVALID_INVENTORY_COLUMNS" });
+		}
+		try {
+			const session = token ? await restoreSessionDetails(token) : null;
+			if (!session) return reply.code(401).send({ error: "UNAUTHENTICATED" });
+			await database.query("UPDATE accounts SET inventory_columns = $1 WHERE id = $2", [preference.columns, session.accountId]);
+
+			return { success: true };
+		} catch (error) {
+			request.log.error({ err: error }, "Inventory columns persistence failed unexpectedly");
 
 			return reply.code(500).send({ error: "INTERNAL_ERROR" });
 		}

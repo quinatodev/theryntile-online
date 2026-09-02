@@ -216,6 +216,85 @@ test("zoom preference persists and restores fractional values while rejecting in
 	}
 });
 
+test("Inventory position schema, authentication, validation, ownership, persistence, and bootstrap restoration remain coherent", async () => {
+	const schema = await pool.query<{ column_name: string; data_type: string; is_nullable: string }>(
+		"SELECT column_name, data_type, is_nullable FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'accounts' AND column_name = ANY($1::text[]) ORDER BY column_name",
+		[["inventory_x", "inventory_y"]],
+	);
+	assert.deepEqual(schema.rows, [
+		{ column_name: "inventory_x", data_type: "integer", is_nullable: "YES" },
+		{ column_name: "inventory_y", data_type: "integer", is_nullable: "YES" },
+	]);
+	const initial = await pool.query<{ inventory_x: number | null; inventory_y: number | null }>(
+		"SELECT inventory_x, inventory_y FROM accounts WHERE username = $1",
+		[fixtureUsernames[2]],
+	);
+	assert.deepEqual(initial.rows[0], { inventory_x: null, inventory_y: null });
+	const unauthenticated = await server.inject({ method: "PUT", url: "/game/preferences/inventory-position", payload: { x: 120, y: 80 } });
+	assert.equal(unauthenticated.statusCode, 401);
+	const cookie = await loginCookie(fixtureUsernames[2]);
+	for (const payload of [
+		{}, { x: 0 }, { x: "1", y: 1 }, { x: 1.5, y: 1 }, { x: -1, y: 1 }, { x: 1, y: 10_001 }, { accountId: primaryAccountId, x: 1, y: 1 },
+	]) {
+		const rejected = await server.inject({ method: "PUT", url: "/game/preferences/inventory-position", headers: { cookie }, payload });
+		assert.equal(rejected.statusCode, 400);
+	}
+	const persisted = await server.inject({ method: "PUT", url: "/game/preferences/inventory-position", headers: { cookie }, payload: { x: 120, y: 80 } });
+	assert.equal(persisted.statusCode, 200);
+	const accounts = await pool.query<{ inventory_x: number | null; inventory_y: number | null; username: string }>(
+		"SELECT username, inventory_x, inventory_y FROM accounts WHERE username = ANY($1::text[]) ORDER BY username",
+		[[fixtureUsernames[0], fixtureUsernames[2]]],
+	);
+	assert.deepEqual(accounts.rows, [
+		{ username: fixtureUsernames[0], inventory_x: null, inventory_y: null },
+		{ username: fixtureUsernames[2], inventory_x: 120, inventory_y: 80 },
+	]);
+	const restored = await server.inject({ method: "GET", url: "/game/config", headers: { cookie } });
+	assert.equal(restored.statusCode, 200);
+	assert.deepEqual((restored.json() as { inventoryPosition: unknown }).inventoryPosition, { x: 120, y: 80 });
+});
+
+test("Inventory columns schema and authenticated preference accept only widths 4 through 6 per account", async () => {
+	const schema = await pool.query<{ column_default: string; data_type: string; is_nullable: string }>(
+		"SELECT data_type, column_default, is_nullable FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'accounts' AND column_name = 'inventory_columns'",
+	);
+	assert.deepEqual(schema.rows[0], { data_type: "integer", column_default: "4", is_nullable: "NO" });
+	for (const columns of [4, 5, 6]) {
+		await pool.query("UPDATE accounts SET inventory_columns = $1 WHERE id = $2", [columns, primaryAccountId]);
+		const stored = await pool.query<{ inventory_columns: number }>("SELECT inventory_columns FROM accounts WHERE id = $1", [primaryAccountId]);
+		assert.equal(stored.rows[0]?.inventory_columns, columns);
+	}
+	for (const columns of [3, 7]) {
+		await assert.rejects(
+			pool.query("UPDATE accounts SET inventory_columns = $1 WHERE id = $2", [columns, primaryAccountId]),
+			(error: { code?: string }) => error.code === "23514",
+		);
+	}
+	await pool.query("UPDATE accounts SET inventory_columns = 4 WHERE id = $1", [primaryAccountId]);
+	const unauthenticated = await server.inject({ method: "PUT", url: "/game/preferences/inventory-columns", payload: { columns: 5 } });
+	assert.equal(unauthenticated.statusCode, 401);
+	const cookie = await loginCookie(fixtureUsernames[2]);
+	for (const payload of [
+		{}, { columns: null }, { columns: "5" }, { columns: 3 }, { columns: 4.5 }, { columns: 7 }, { accountId: primaryAccountId, columns: 5 },
+	]) {
+		const rejected = await server.inject({ method: "PUT", url: "/game/preferences/inventory-columns", headers: { cookie }, payload });
+		assert.equal(rejected.statusCode, 400);
+	}
+	const persisted = await server.inject({ method: "PUT", url: "/game/preferences/inventory-columns", headers: { cookie }, payload: { columns: 5 } });
+	assert.equal(persisted.statusCode, 200);
+	const accounts = await pool.query<{ inventory_columns: number; username: string }>(
+		"SELECT username, inventory_columns FROM accounts WHERE username = ANY($1::text[]) ORDER BY username",
+		[[fixtureUsernames[0], fixtureUsernames[2]]],
+	);
+	assert.deepEqual(accounts.rows, [
+		{ username: fixtureUsernames[0], inventory_columns: 4 },
+		{ username: fixtureUsernames[2], inventory_columns: 5 },
+	]);
+	const restored = await server.inject({ method: "GET", url: "/game/config", headers: { cookie } });
+	assert.equal(restored.statusCode, 200);
+	assert.equal((restored.json() as { inventoryColumns: unknown }).inventoryColumns, 5);
+});
+
 test("WebSocket upgrade accepts only a currently persisted session", async () => {
 	const { createSession, revokeSession } = await import("./Session.js");
 	const active = await createSession(secondaryAccountId);

@@ -45,6 +45,40 @@ try {
 		ALTER TABLE accounts
 		ADD COLUMN IF NOT EXISTS zoom DOUBLE PRECISION NOT NULL DEFAULT 1
 	`);
+	await database.query(`
+		ALTER TABLE accounts
+		ADD COLUMN IF NOT EXISTS inventory_x INTEGER,
+		ADD COLUMN IF NOT EXISTS inventory_y INTEGER
+	`);
+	await database.query(`
+		ALTER TABLE accounts
+		ADD COLUMN IF NOT EXISTS inventory_columns INTEGER NOT NULL DEFAULT 4
+	`);
+	// Lang: pt-BR
+	// NULL em ambas as coordenadas preserva o layout padrão; quando presentes, elas formam um par defensivamente limitado.
+	// Lang: en-US
+	// NULL in both coordinates preserves the default layout; when present, they form one defensively bounded pair.
+	await database.query(`
+		DO $$
+		BEGIN
+			IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'accounts_inventory_position_pair') THEN
+				ALTER TABLE accounts ADD CONSTRAINT accounts_inventory_position_pair CHECK (
+					(inventory_x IS NULL AND inventory_y IS NULL)
+					OR (inventory_x BETWEEN 0 AND 10000 AND inventory_y BETWEEN 0 AND 10000)
+				);
+			END IF;
+		END
+		$$
+	`);
+	await database.query(`
+		DO $$
+		BEGIN
+			IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'accounts_inventory_columns_range') THEN
+				ALTER TABLE accounts ADD CONSTRAINT accounts_inventory_columns_range CHECK (inventory_columns BETWEEN 4 AND 6);
+			END IF;
+		END
+		$$
+	`);
 	// Lang: pt-BR
 	// DOUBLE PRECISION preserva contas existentes e representa quarters exatamente sem truncamento de INTEGER.
 	// Lang: en-US

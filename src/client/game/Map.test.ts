@@ -17,7 +17,7 @@ export const createSerializedNewbiePayload = () => ({
 	movement: { maxSteps: 5 },
 	tileDefinitions: { 1: true, 101: false, 501: true },
 	zoom: { max: 3, min: 1 },
-	zoomPreference: 2,
+	zoomPreference: 2, inventoryColumns: 4, inventoryPosition: null,
 });
 
 test("serialized API map produces the Newbie dimensions, layers, Tile IDs, and walkability", () => {

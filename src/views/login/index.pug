@@ -5,6 +5,8 @@ block title
 
 block styles
 	link(rel="stylesheet" href="/styles/Login.css")
+	link(rel="stylesheet" href="/styles/ui/UIManager.css")
+	link(rel="stylesheet" href="/styles/ui/inventory/Inventory.css")
 
 block content
 	main#game-entry.login(data-state="restoring")
@@ -35,5 +37,6 @@ block content
 
 		section.game-view(data-view="game" hidden)
 			canvas(data-role="game-canvas" width="640" height="360")
+			.game-ui(data-role="game-ui")
 
 	script(type="module" src="/client/login/Login.js")

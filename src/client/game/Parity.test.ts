@@ -17,7 +17,7 @@ const MAP = {
 };
 const runtime = parseGameBootstrapConfig({
 	map: MAP, mapId: "fixture", movement: { maxSteps: 5 }, tileDefinitions: { 1: true, 501: true, 600: false },
-	zoom: { min: 1, max: 3 }, zoomPreference: 1,
+	zoom: { min: 1, max: 3 }, zoomPreference: 1, inventoryColumns: 4, inventoryPosition: null,
 });
 
 test("server payload round-trip preserves Tile definitions and cell-walkability parity", () => {
