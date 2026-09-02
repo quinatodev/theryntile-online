@@ -19,10 +19,16 @@ export const GAME_CONFIG = {
 
 export const INITIAL_MAP_ID: keyof typeof GAME_CONFIG.maps = "lobby";
 export const INVENTORY_POSITION_LIMIT = 10_000;
+export const CHARACTER_POSITION_LIMIT = 10_000;
 export const INVENTORY_COLUMNS_MAX = 6;
 export const INVENTORY_COLUMNS_MIN = 4;
 
 export interface InventoryPositionPreference {
+	x: number;
+	y: number;
+}
+
+export interface CharacterPositionPreference {
 	x: number;
 	y: number;
 }
@@ -38,11 +44,13 @@ export const createGameBootstrapPayload = (
 	zoomPreference: number,
 	inventoryPosition: InventoryPositionPreference | null = null,
 	inventoryColumns = INVENTORY_COLUMNS_MIN,
+	characterPosition: CharacterPositionPreference | null = null,
 ) => {
 	const map = GAME_CONFIG.maps[INITIAL_MAP_ID];
 	validateMapDefinition(map);
 
 	return {
+		characterPosition,
 		inventoryColumns,
 		map,
 		mapId: INITIAL_MAP_ID,
@@ -63,6 +71,11 @@ export const isAllowedInventoryColumns = (columns: unknown): columns is number =
 export const isAllowedInventoryCoordinate = (coordinate: unknown): coordinate is number => Number.isSafeInteger(coordinate)
 	&& (coordinate as number) >= 0
 	&& (coordinate as number) <= INVENTORY_POSITION_LIMIT;
+
+/** Lang: pt-BR - Limita a posiÃ§Ã£o persistida de Character a pixels inteiros defensivos. Lang: en-US - Restricts the persisted Character position to defensive integer pixels. */
+export const isAllowedCharacterCoordinate = (coordinate: unknown): coordinate is number => Number.isSafeInteger(coordinate)
+	&& (coordinate as number) >= 0
+	&& (coordinate as number) <= CHARACTER_POSITION_LIMIT;
 
 /**
  * Lang: pt-BR

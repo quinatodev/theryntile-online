@@ -42,6 +42,7 @@ export const clearSessionCookieOptions = {
 interface SessionAccountRow {
 	id: number;
 	display_name: string;
+	expires_at: Date;
 }
 
 interface GameServerRow {
@@ -56,6 +57,7 @@ export interface SessionResponse {
 
 export interface SessionDetails extends SessionResponse {
 	accountId: number;
+	expiresAt: Date;
 	sessionId: string;
 }
 
@@ -158,7 +160,7 @@ export async function restoreSessionDetails(token: string): Promise<SessionDetai
 	// Lang: en-US
 	// A valid JWT is insufficient: its exact sid must still exist and remain valid in PostgreSQL.
 	const accountResult = await database.query<SessionAccountRow>(
-		`SELECT accounts.id, accounts.display_name
+		`SELECT accounts.id, accounts.display_name, auth_sessions.expires_at
 		FROM auth_sessions
 		INNER JOIN accounts ON accounts.id = auth_sessions.account_id
 		WHERE auth_sessions.id = $1
@@ -178,6 +180,7 @@ export async function restoreSessionDetails(token: string): Promise<SessionDetai
 
 	return {
 		accountId: account.id,
+		expiresAt: account.expires_at,
 		sessionId: claims.sessionId,
 		player: { id: account.id, name: account.display_name },
 		servers: serversResult.rows,

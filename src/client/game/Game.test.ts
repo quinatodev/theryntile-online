@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { addTileEntities, executeGameFrame, startGame } from "./Game.js";
+import { addTileEntities, createZoomPersistence, executeGameFrame, startGame } from "./Game.js";
 import { World } from "../ecs/World.js";
 
 /** Lang: pt-BR - Implementa somente o carregamento assíncrono observado por RenderSystem. Lang: en-US - Implements only the asynchronous loading observed by RenderSystem. */
@@ -85,6 +85,40 @@ test("successful frame continues without cleanup or fatal notification", () => {
 	assert.equal(reports, 0);
 });
 
+test("zoom persistence serializes, coalesces, deduplicates, and continues after failure", async () => {
+	const settle = () => new Promise<void>((resolve) => setImmediate(resolve));
+	const calls: number[] = [];
+	const completions: Array<{ reject(error: Error): void; resolve(): void }> = [];
+	const persistence = createZoomPersistence(2, (zoom) => new Promise<void>((resolve, reject) => {
+		calls.push(zoom);
+		completions.push({ reject, resolve });
+	}));
+
+	persistence.queue(2);
+	assert.deepEqual(calls, []);
+	persistence.queue(2.25);
+	persistence.queue(2.5);
+	persistence.queue(2.75);
+	assert.deepEqual(calls, [2.25]);
+	completions[0]?.resolve();
+	await settle();
+	assert.deepEqual(calls, [2.25, 2.75]);
+	const previousConsoleError = console.error;
+	console.error = () => {};
+	completions[1]?.reject(new Error("controlled failure"));
+	persistence.queue(3);
+	await settle();
+	console.error = previousConsoleError;
+	assert.deepEqual(calls, [2.25, 2.75, 3]);
+	completions[2]?.resolve();
+	await settle();
+	persistence.queue(3);
+	assert.deepEqual(calls, [2.25, 2.75, 3]);
+	persistence.dispose();
+	persistence.queue(3.25);
+	assert.deepEqual(calls, [2.25, 2.75, 3]);
+});
+
 test("Game creates one Tile Entity for every non-zero runtime map cell", () => {
 	const map = {
 		0: Array.from({ length: 11 }, () => Array<number>(11).fill(1)),
@@ -95,7 +129,7 @@ test("Game creates one Tile Entity for every non-zero runtime map cell", () => {
 	const world = new World();
 	addTileEntities(world, {
 		map, mapId: "lobby", movement: { maxSteps: 5 }, tileDefinitions: { 1: true, 101: false },
-		zoom: { max: 3, min: 1 }, zoomPreference: 1, inventoryColumns: 4, inventoryPosition: null,
+		zoom: { max: 3, min: 1 }, zoomPreference: 1, inventoryColumns: 4, inventoryPosition: null, characterPosition: null,
 	});
 	const expectedTextureIds = Object.values(map).flat(2).filter((tileId) => tileId !== 0);
 	assert.equal(world.tiles.size, expectedTextureIds.length);
@@ -119,7 +153,7 @@ test("Game integrates JOIN, duplicate replacement, LEFT, listeners, RAF, movemen
 			{ id: 1, name: "Local", row: 0, column: 0 },
 			[{ id: 2, name: "Remote A", row: 0, column: 0 }],
 			() => true,
-			{ map: { 0: [[1]] }, mapId: "test", movement: { maxSteps: 2 }, tileDefinitions: { 1: true }, zoom: { max: 2, min: 1 }, zoomPreference: 1, inventoryColumns: 4, inventoryPosition: null },
+			{ map: { 0: [[1]] }, mapId: "test", movement: { maxSteps: 2 }, tileDefinitions: { 1: true }, zoom: { max: 2, min: 1 }, zoomPreference: 1, inventoryColumns: 4, inventoryPosition: null, characterPosition: null },
 			async (zoom) => { savedZooms.push(zoom); },
 			() => {},
 			() => { resyncRequests += 1;

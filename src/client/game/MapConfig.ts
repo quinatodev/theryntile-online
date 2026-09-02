@@ -1,6 +1,7 @@
 import { getMapTileIds, type RuntimeMap, type RuntimeTileDefinitions } from "./Map.js";
 
 export interface GameRuntimeConfig {
+	characterPosition: { x: number; y: number } | null;
 	inventoryColumns: number;
 	inventoryPosition: { x: number; y: number } | null;
 	map: RuntimeMap;
@@ -77,6 +78,7 @@ export function parseGameBootstrapConfig(value: unknown): GameRuntimeConfig {
 	const movement = response.movement as Record<string, unknown> | undefined;
 	const zoom = response.zoom as Record<string, unknown> | undefined;
 	const inventoryPosition = response.inventoryPosition as Record<string, unknown> | null | undefined;
+	const characterPosition = response.characterPosition as Record<string, unknown> | null | undefined;
 	if (!isInteger(response.inventoryColumns) || response.inventoryColumns < 4 || response.inventoryColumns > 6) {
 		throw new Error("Invalid game configuration: inventoryColumns must be an integer between 4 and 6.");
 	}
@@ -90,11 +92,26 @@ export function parseGameBootstrapConfig(value: unknown): GameRuntimeConfig {
 	if (inventoryPosition !== null && (
 		!inventoryPosition
 		|| typeof inventoryPosition !== "object"
+		|| Array.isArray(inventoryPosition)
+		|| Object.keys(inventoryPosition).length !== 2
 		|| !isInteger(inventoryPosition.x)
 		|| inventoryPosition.x < 0
+		|| inventoryPosition.x > 10_000
 		|| !isInteger(inventoryPosition.y)
 		|| inventoryPosition.y < 0
-	)) throw new Error("Invalid game configuration: inventoryPosition must be null or contain non-negative safe integer coordinates.");
+		|| inventoryPosition.y > 10_000
+	)) throw new Error("Invalid game configuration: inventoryPosition must be null or contain bounded safe integer coordinates.");
+	if (characterPosition !== null && (
+		!characterPosition
+		|| typeof characterPosition !== "object"
+		|| Object.keys(characterPosition).length !== 2
+		|| !isInteger(characterPosition.x)
+		|| characterPosition.x < 0
+		|| characterPosition.x > 10_000
+		|| !isInteger(characterPosition.y)
+		|| characterPosition.y < 0
+		|| characterPosition.y > 10_000
+	)) throw new Error("Invalid game configuration: characterPosition must be null or contain bounded safe integer coordinates.");
 
 	const map = parseRuntimeMap(response.map);
 	const tileDefinitions = parseTileDefinitions(response.tileDefinitions);
@@ -103,6 +120,7 @@ export function parseGameBootstrapConfig(value: unknown): GameRuntimeConfig {
 	}
 
 	return {
+		characterPosition: characterPosition === null ? null : { x: characterPosition.x as number, y: characterPosition.y as number },
 		inventoryColumns: response.inventoryColumns,
 		inventoryPosition: inventoryPosition === null ? null : { x: inventoryPosition.x as number, y: inventoryPosition.y as number },
 		map,

@@ -1,0 +1,154 @@
+.character-control {
+	display: grid;
+	justify-items: center;
+	color: #fff;
+}
+
+.character-button {
+	display: block;
+	width: 64px;
+	height: 64px;
+	padding: 0;
+	border: 0;
+	background: none;
+	cursor: pointer;
+}
+
+.character-button__label {
+	line-height: 1.2;
+}
+
+.character-button img,
+.character-window__equipment-slot img {
+	display: block;
+	image-rendering: pixelated;
+}
+
+.character-button img {
+	width: 64px;
+	height: 64px;
+}
+
+.character-window {
+	width: max-content;
+	color: #fff;
+}
+
+.character-window__header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	min-height: 32px;
+	padding: 10px 20px;
+	background-color: #773422;
+	border-radius: 5px 5px 0 0;
+	cursor: grab;
+	font-size: 24px;
+	touch-action: none;
+	user-select: none;
+}
+
+.character-window--dragging .character-window__header {
+	cursor: grabbing;
+}
+
+.character-window__close {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 32px;
+	height: 32px;
+	margin-left: 20px;
+	padding: 0;
+	border: 0;
+	color: inherit;
+	background: none;
+	font: inherit;
+	font-size: 32px;
+	cursor: pointer;
+}
+
+.character-window__body {
+	display: flex;
+	gap: 20px;
+	padding: 20px;
+	background-color: #2b2b2b;
+	border-radius: 0 0 5px 5px;
+}
+
+.character-window__section h2 {
+	margin: 0 0 12px;
+	font-size: 20px;
+	font-weight: normal;
+	text-align: center;
+}
+
+.character-window__equipment-grid {
+	position: relative;
+	display: grid;
+	grid-template-columns: repeat(3, 72px);
+	grid-template-rows: repeat(4, 72px);
+	gap: 4px;
+}
+
+.character-window__equipment-slot {
+	position: relative;
+	z-index: 1;
+	width: 72px;
+	height: 72px;
+	overflow: hidden;
+}
+
+.character-window__equipment-slot img {
+	width: 72px;
+	height: 72px;
+}
+
+.character-window__equipment-slot span {
+	position: absolute;
+	right: 2px;
+	bottom: 6px;
+	left: 2px;
+	font-size: 14px;
+	line-height: 1;
+	text-align: center;
+	text-shadow: 1px 1px #000;
+	white-space: nowrap;
+}
+
+.character-window__character-preview {
+	position: absolute;
+	z-index: 0;
+	bottom: 0;
+	left: 0;
+	width: 148px;
+	height: 148px;
+	pointer-events: none;
+}
+
+.character-window__hana-sprite {
+	position: absolute;
+	bottom: 0;
+	left: 50%;
+	width: 192px;
+	height: 288px;
+	background-position: 0 0;
+	background-repeat: no-repeat;
+	background-size: 1536px 288px;
+	image-rendering: pixelated;
+	transform: translateX(-50%);
+}
+
+.character-window__attributes {
+	min-width: 120px;
+	padding-left: 20px;
+	border-left: 1px solid #773422;
+}
+
+.character-window__attributes ul {
+	display: grid;
+	gap: 12px;
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}

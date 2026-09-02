@@ -10,17 +10,25 @@
 	inset: 0;
 }
 
-.game-ui__inventory-control,
-.game-ui__backpack-region {
+.game-ui__controls,
+.game-ui__backpack-region,
+.game-ui__character-region {
 	position: absolute;
 	right: 15px;
 	pointer-events: auto;
 }
 
-.game-ui__inventory-control {
+.game-ui__controls {
 	bottom: 15px;
+	display: flex;
+	align-items: flex-end;
+	gap: 16px;
 }
 
 .game-ui__backpack-region {
 	bottom: 96px;
+}
+
+.game-ui__character-region {
+	top: 15px;
 }

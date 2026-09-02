@@ -52,19 +52,54 @@ try {
 	`);
 	await database.query(`
 		ALTER TABLE accounts
+		ADD COLUMN IF NOT EXISTS character_x INTEGER,
+		ADD COLUMN IF NOT EXISTS character_y INTEGER
+	`);
+	await database.query(`
+		ALTER TABLE accounts
 		ADD COLUMN IF NOT EXISTS inventory_columns INTEGER NOT NULL DEFAULT 4
 	`);
 	// Lang: pt-BR
 	// NULL em ambas as coordenadas preserva o layout padrão; quando presentes, elas formam um par defensivamente limitado.
 	// Lang: en-US
 	// NULL in both coordinates preserves the default layout; when present, they form one defensively bounded pair.
+	const invalidInventoryPositions = await database.query(`
+		SELECT id, inventory_x, inventory_y
+		FROM accounts
+		WHERE NOT (
+			(inventory_x IS NULL AND inventory_y IS NULL)
+			OR (
+				inventory_x IS NOT NULL AND inventory_y IS NOT NULL
+				AND inventory_x BETWEEN 0 AND 10000
+				AND inventory_y BETWEEN 0 AND 10000
+			)
+		)
+	`);
+	if (invalidInventoryPositions.rowCount !== 0) {
+		throw new Error(`Cannot install accounts_inventory_position_pair: ${String(invalidInventoryPositions.rowCount)} account(s) contain invalid inventory coordinates.`);
+	}
+	await database.query(`
+		ALTER TABLE accounts DROP CONSTRAINT IF EXISTS accounts_inventory_position_pair;
+		ALTER TABLE accounts ADD CONSTRAINT accounts_inventory_position_pair CHECK (
+			(inventory_x IS NULL AND inventory_y IS NULL)
+			OR (
+				inventory_x IS NOT NULL AND inventory_y IS NOT NULL
+				AND inventory_x BETWEEN 0 AND 10000
+				AND inventory_y BETWEEN 0 AND 10000
+			)
+		)
+	`);
 	await database.query(`
 		DO $$
 		BEGIN
-			IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'accounts_inventory_position_pair') THEN
-				ALTER TABLE accounts ADD CONSTRAINT accounts_inventory_position_pair CHECK (
-					(inventory_x IS NULL AND inventory_y IS NULL)
-					OR (inventory_x BETWEEN 0 AND 10000 AND inventory_y BETWEEN 0 AND 10000)
+			IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'accounts_character_position_pair') THEN
+				ALTER TABLE accounts ADD CONSTRAINT accounts_character_position_pair CHECK (
+					(character_x IS NULL AND character_y IS NULL)
+					OR (
+						character_x IS NOT NULL AND character_y IS NOT NULL
+						AND character_x BETWEEN 0 AND 10000
+						AND character_y BETWEEN 0 AND 10000
+					)
 				);
 			END IF;
 		END

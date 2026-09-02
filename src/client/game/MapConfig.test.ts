@@ -6,6 +6,7 @@ import { parseGameBootstrapConfig, parseRuntimeMap } from "./MapConfig.js";
 
 /** Lang: pt-BR - Cria payload válido para mutações focadas. Lang: en-US - Creates a valid payload for focused mutations. */
 const createSerializedNewbiePayload = () => ({
+	characterPosition: null,
 	inventoryColumns: 4,
 	inventoryPosition: null,
 	map: {
@@ -24,6 +25,7 @@ test("runtime config accepts a serialized Newbie payload and clamps persisted zo
 	assert.equal(parseGameBootstrapConfig({ ...payload, zoomPreference: 99 }).zoomPreference, 3);
 	assert.equal(parseGameBootstrapConfig({ ...payload, zoomPreference: 2.25 }).zoomPreference, 2.25);
 	assert.deepEqual(parseGameBootstrapConfig({ ...payload, inventoryPosition: { x: 120, y: 80 } }).inventoryPosition, { x: 120, y: 80 });
+	assert.deepEqual(parseGameBootstrapConfig({ ...payload, characterPosition: { x: 240, y: 160 } }).characterPosition, { x: 240, y: 160 });
 	for (const inventoryColumns of [4, 5, 6]) assert.equal(parseGameBootstrapConfig({ ...payload, inventoryColumns }).inventoryColumns, inventoryColumns);
 });
 
@@ -49,9 +51,16 @@ test("bootstrap parser reports the exact invalid field without weakening validat
 	assert.throws(() => parseGameBootstrapConfig({ ...payload, tileDefinitions: undefined }), /tileDefinitions/);
 	assert.throws(() => parseGameBootstrapConfig({ ...payload, zoom: undefined }), /zoom/);
 	assert.throws(() => parseGameBootstrapConfig({ ...payload, zoomPreference: "1" }), /zoomPreference/);
-	for (const inventoryPosition of [undefined, { x: -1, y: 0 }, { x: 1.5, y: 0 }, { x: 0, y: "1" }]) {
+	for (const inventoryPosition of [
+		undefined, [], {}, { x: 0 }, { y: 0 }, { x: -1, y: 0 }, { x: 0, y: -1 }, { x: 10_001, y: 0 }, { x: 0, y: 10_001 },
+		{ x: 1.5, y: 0 }, { x: 0, y: 1.5 }, { x: 0, y: "1" }, { extra: true, x: 0, y: 0 },
+	]) {
 		assert.throws(() => parseGameBootstrapConfig({ ...payload, inventoryPosition }), /inventoryPosition/);
 	}
+	for (const characterPosition of [
+		undefined, {}, { x: 0 }, { x: -1, y: 0 }, { x: 0, y: -1 }, { x: 10_001, y: 0 }, { x: 0, y: 10_001 },
+		{ x: 1.5, y: 0 }, { x: 0, y: 1.5 }, { x: "1", y: 0 }, { extra: true, x: 0, y: 0 },
+	]) assert.throws(() => parseGameBootstrapConfig({ ...payload, characterPosition }), /characterPosition/);
 	for (const inventoryColumns of [undefined, null, "4", 3, 4.5, 7]) {
 		assert.throws(() => parseGameBootstrapConfig({ ...payload, inventoryColumns }), /inventoryColumns/);
 	}

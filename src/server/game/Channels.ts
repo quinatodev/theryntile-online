@@ -62,6 +62,8 @@ const channels: RuntimeChannel[] = [];
 // members/players are admitted presence; lobbySockets may request admission; accountSockets indexes live sockets.
 const lobbySockets = new Set<ChannelSocket>();
 const accountSockets = new Map<number, Set<ChannelSocket>>();
+const sessionExpirationTimers = new Map<ChannelSocket, ReturnType<typeof setTimeout>>();
+const closingSockets = new WeakSet<ChannelSocket>();
 const OPEN_SOCKET_STATE = 1;
 const MOVEMENT_STEP_MS = 500;
 const activeRoutes = new RouteState<ChannelSocket>();
@@ -230,6 +232,8 @@ const movePlayer = (socket: ChannelSocket, row: number, column: number) => {
  * Strictly validates the current client -> server intent before forwarding it to admission.
  */
 const handleMessage = (socket: ChannelSocket, identity: AuthenticatedPlayer, data: unknown) => {
+	if (!accountSockets.get(identity.id)?.has(socket)) return;
+
 	try {
 		const message = JSON.parse(String(data)) as Record<string, unknown>;
 		const keys = Object.keys(message);
@@ -280,14 +284,17 @@ const handleMessage = (socket: ChannelSocket, identity: AuthenticatedPlayer, dat
 
 /**
  * Lang: pt-BR
- * Centraliza o cleanup final: cancela rota/timer, remove índices e presença, então publica PLAYER_LEFT e população.
- * Replacement/revocation deixam este handler como único owner do cleanup completo.
+ * Centraliza o cleanup idempotente: cancela rota/timer, remove índices e presença, então publica PLAYER_LEFT e população.
+ * Replacement, revocation e close físico convergem para este mesmo cleanup.
  *
  * Lang: en-US
- * Centralizes final cleanup: cancels route/timer, removes indexes and presence, then publishes PLAYER_LEFT and population.
- * Replacement/revocation leave this handler as the sole owner of complete cleanup.
+ * Centralizes idempotent cleanup: cancels route/timer, removes indexes and presence, then publishes PLAYER_LEFT and population.
+ * Replacement, revocation, and physical close converge on this same cleanup.
  */
 const handleClose = (socket: ChannelSocket, accountId: number) => {
+	const expirationTimer = sessionExpirationTimers.get(socket);
+	if (expirationTimer) clearTimeout(expirationTimer);
+	sessionExpirationTimers.delete(socket);
 	activeRoutes.cancel(socket);
 	lobbySockets.delete(socket);
 	const sockets = accountSockets.get(accountId);
@@ -355,12 +362,22 @@ export function getRuntimeChannels(): readonly RuntimeChannel[] {
  * Lang: en-US
  * Registers an authenticated WebSocket in the lobby, indexes it by account, and sends the initial catalog.
  */
-export function addLobbySocket(socket: ChannelSocket, identity: AuthenticatedPlayer, sessionId: string): void {
+export function addLobbySocket(socket: ChannelSocket, identity: AuthenticatedPlayer, sessionId: string, expiresAt: Date): void {
 	// Lang: pt-BR
 	// sid permite targeting de lifecycle; validade persistente permanece responsabilidade de Session.ts.
 	// Lang: en-US
 	// sid enables lifecycle targeting; persistent validity remains Session.ts responsibility.
 	socket.sessionId = sessionId;
+	socket.on("message", (data) => handleMessage(socket, identity, data));
+	socket.on("error", (error) => console.error("Authenticated WebSocket error.", error));
+	socket.once("close", () => handleClose(socket, identity.id));
+
+	const expirationDelay = expiresAt.getTime() - Date.now();
+	if (expirationDelay <= 0) {
+		closeSocketWithMessage(socket, "SESSION_REVOKED", identity.id);
+
+		return;
+	}
 
 	const sockets = accountSockets.get(identity.id) ?? new Set<ChannelSocket>();
 
@@ -373,22 +390,34 @@ export function addLobbySocket(socket: ChannelSocket, identity: AuthenticatedPla
 		channels: channels.map(channelState),
 	}));
 
-	socket.on("message", (data) => handleMessage(socket, identity, data));
-
-	socket.on("error", (error) => console.error("Authenticated WebSocket error.", error));
-
-	socket.once("close", () => handleClose(socket, identity.id));
+	const expirationTimer = setTimeout(() => {
+		closeSocketWithMessage(socket, "SESSION_REVOKED", identity.id);
+	}, expirationDelay);
+	expirationTimer.unref();
+	sessionExpirationTimers.set(socket, expirationTimer);
 }
 
 /**
  * Lang: pt-BR
- * Retira elegibilidade, cancela a rota, notifica o motivo e inicia o close; handleClose preserva o cleanup final único.
+ * Retira elegibilidade e presença antes de notificar e fechar; chamadas concorrentes convergem uma única vez.
  *
  * Lang: en-US
- * Removes eligibility, cancels the route, reports the reason, and starts close; handleClose preserves single final cleanup.
+ * Removes eligibility and presence before reporting and closing; concurrent calls converge exactly once.
  */
-const closeSocketWithMessage = (socket: ChannelSocket, type: "SESSION_REPLACED" | "SESSION_REVOKED") => {
-	activeRoutes.cancel(socket);
+const closeSocketWithMessage = (socket: ChannelSocket, type: "SESSION_REPLACED" | "SESSION_REVOKED", accountId?: number) => {
+	if (closingSockets.has(socket)) return;
+	closingSockets.add(socket);
+
+	if (accountId !== undefined) handleClose(socket, accountId);
+	else {
+		for (const [candidateAccountId, sockets] of accountSockets) {
+			if (sockets.has(socket)) {
+				handleClose(socket, candidateAccountId);
+
+				break;
+			}
+		}
+	}
 	const message = JSON.stringify({ type });
 	const closeCode = type === "SESSION_REPLACED" ? 4001 : 4002;
 
@@ -396,8 +425,6 @@ const closeSocketWithMessage = (socket: ChannelSocket, type: "SESSION_REPLACED" 
 	// Remover antes de send faz ENTER_CHANNEL falhar mesmo enquanto o socket continua OPEN.
 	// Lang: en-US
 	// Removing before send makes ENTER_CHANNEL fail even while the socket remains OPEN.
-	lobbySockets.delete(socket);
-
 	if (socket.readyState === OPEN_SOCKET_STATE) {
 		closeSocketAfterSend(socket, message, closeCode, type);
 	} else {

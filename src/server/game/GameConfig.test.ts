@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { parseGameBootstrapConfig } from "../../client/game/MapConfig.js";
-import { clampZoom, createGameBootstrapPayload, GAME_CONFIG, INVENTORY_COLUMNS_MAX, INVENTORY_COLUMNS_MIN, INVENTORY_POSITION_LIMIT, isAllowedInventoryColumns, isAllowedInventoryCoordinate, isAllowedZoom } from "./GameConfig.js";
+import { CHARACTER_POSITION_LIMIT, clampZoom, createGameBootstrapPayload, GAME_CONFIG, INVENTORY_COLUMNS_MAX, INVENTORY_COLUMNS_MIN, INVENTORY_POSITION_LIMIT, isAllowedCharacterCoordinate, isAllowedInventoryColumns, isAllowedInventoryCoordinate, isAllowedZoom } from "./GameConfig.js";
 import { Newbie } from "./map/Newbie.js";
 import { validateMapDefinition } from "./Map.js";
 
@@ -27,6 +27,11 @@ test("GAME_CONFIG exposes valid adjustable ranges and clamps zoom through their 
 	assert.equal(isAllowedInventoryCoordinate(-1), false);
 	assert.equal(isAllowedInventoryCoordinate(INVENTORY_POSITION_LIMIT + 1), false);
 	assert.equal(isAllowedInventoryCoordinate(1.5), false);
+	assert.equal(isAllowedCharacterCoordinate(0), true);
+	assert.equal(isAllowedCharacterCoordinate(CHARACTER_POSITION_LIMIT), true);
+	assert.equal(isAllowedCharacterCoordinate(-1), false);
+	assert.equal(isAllowedCharacterCoordinate(CHARACTER_POSITION_LIMIT + 1), false);
+	assert.equal(isAllowedCharacterCoordinate(1.5), false);
 	assert.equal(isAllowedInventoryColumns(INVENTORY_COLUMNS_MIN), true);
 	assert.equal(isAllowedInventoryColumns(5), true);
 	assert.equal(isAllowedInventoryColumns(INVENTORY_COLUMNS_MAX), true);
@@ -41,6 +46,7 @@ test("every Newbie Tile is registered and the real bootstrap payload is valid", 
 	assert.equal(payload.map, Newbie);
 	assert.equal(payload.zoomPreference, GAME_CONFIG.zoom.min);
 	assert.equal(payload.inventoryPosition, null);
+	assert.equal(payload.characterPosition, null);
 	assert.equal(payload.inventoryColumns, INVENTORY_COLUMNS_MIN);
 	assert.doesNotThrow(() => parseGameBootstrapConfig(JSON.parse(JSON.stringify(payload))));
 });

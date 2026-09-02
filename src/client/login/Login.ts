@@ -13,6 +13,7 @@ import { createRealtime } from "../realtime/Realtime.js";
 import { parseGameBootstrapConfig } from "../game/MapConfig.js";
 import { UIManager } from "../ui/UIManager.js";
 import { type InventoryPosition } from "../ui/inventory/Backpack.js";
+import { type CharacterPosition } from "../ui/character/CharacterWindow.js";
 
 interface LoginResponse {
 	player: { id: number; name: string };
@@ -360,6 +361,25 @@ const realtime = createRealtime({
 					console.error("Unable to persist Inventory position.", error);
 				});
 			};
+			let lastPersistedCharacterPosition = bootstrap.characterPosition;
+			let characterPositionSave = Promise.resolve();
+			const saveCharacterPosition = (position: CharacterPosition): void => {
+				characterPositionSave = characterPositionSave.then(async () => {
+					if (
+						position.x === lastPersistedCharacterPosition?.x
+						&& position.y === lastPersistedCharacterPosition.y
+					) return;
+					const response = await fetch("/game/preferences/character-position", {
+						body: JSON.stringify(position),
+						headers: { "Content-Type": "application/json" },
+						method: "PUT",
+					});
+					if (!response.ok) throw new Error("CHARACTER_POSITION_SAVE_FAILED");
+					lastPersistedCharacterPosition = position;
+				}).catch((error: unknown) => {
+					console.error("Unable to persist Character position.", error);
+				});
+			};
 			const startedGame = await startGame(
 				gameCanvas,
 				message.player,
@@ -410,6 +430,8 @@ const realtime = createRealtime({
 				bootstrap.inventoryPosition,
 				saveInventoryColumns,
 				saveInventoryPosition,
+				bootstrap.characterPosition,
+				saveCharacterPosition,
 			);
 
 			startedGame.start();

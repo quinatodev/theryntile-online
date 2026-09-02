@@ -67,6 +67,58 @@ export function executeGameFrame(run: () => void, cleanup: () => void, onFatalEr
 	}
 }
 
+export interface ZoomPersistence {
+	dispose(): void;
+	queue(zoom: number): void;
+}
+
+/**
+ * Lang: pt-BR
+ * Serializa e agrupa gravações de zoom para que somente o valor confirmado mais recente permaneça persistido.
+ *
+ * Lang: en-US
+ * Serializes and coalesces zoom writes so only the latest confirmed value remains persisted.
+ */
+export function createZoomPersistence(initialZoom: number, saveZoom: (zoom: number) => Promise<void>): ZoomPersistence {
+	let confirmedZoom = initialZoom;
+	let desiredZoom: number | null = null;
+	let saving = false;
+	let disposed = false;
+
+	const flush = () => {
+		if (disposed || saving || desiredZoom === null) return;
+		if (desiredZoom === confirmedZoom) {
+			desiredZoom = null;
+
+			return;
+		}
+
+		const zoom = desiredZoom;
+		desiredZoom = null;
+		saving = true;
+		void saveZoom(zoom).then(() => {
+			if (!disposed) confirmedZoom = zoom;
+		}).catch((error: unknown) => {
+			if (!disposed) console.error("Unable to persist camera zoom.", error);
+		}).finally(() => {
+			saving = false;
+			if (!disposed) flush();
+		});
+	};
+
+	return {
+		dispose() {
+			disposed = true;
+			desiredZoom = null;
+		},
+		queue(zoom) {
+			if (disposed) return;
+			desiredZoom = zoom;
+			flush();
+		},
+	};
+}
+
 /**
  * Lang: pt-BR
  * Materializa somente Tile IDs não vazios do mapa runtime validado usando a factory concreta existente.
@@ -141,7 +193,7 @@ export async function startGame(
 	/** Lang: pt-BR - Referência antecipada para cleanup fatal idempotente. Lang: en-US - Forward reference for idempotent fatal cleanup. */
 	let disposeRuntime = () => {};
 	let zoomSaveTimer: number | null = null;
-	let lastSavedZoom = config.zoomPreference;
+	const zoomPersistence = createZoomPersistence(config.zoomPreference, saveZoom);
 	const pointer: PointerPosition = { canvasX: 0, canvasY: 0, inside: false };
 	let serverTimeOffset = 0;
 	const observeServerTime = (serverTime: number) => { serverTimeOffset = serverTime - performance.now(); };
@@ -180,14 +232,11 @@ export async function startGame(
 		event.preventDefault();
 		const previous = camera.zoom;
 		changeCameraZoom(camera, event.deltaY, config.zoom.min, config.zoom.max);
-		if (camera.zoom !== previous && camera.zoom !== lastSavedZoom) {
+		if (camera.zoom !== previous) {
 			if (zoomSaveTimer !== null) window.clearTimeout(zoomSaveTimer);
 			zoomSaveTimer = window.setTimeout(() => {
 				zoomSaveTimer = null;
-				const zoom = camera.zoom;
-				void saveZoom(zoom).then(() => { lastSavedZoom = zoom; }).catch((error: unknown) => {
-					console.error("Unable to persist camera zoom.", error);
-				});
+				zoomPersistence.queue(camera.zoom);
 			}, 300);
 		}
 		render();
@@ -272,6 +321,7 @@ export async function startGame(
 	disposeRuntime = () => {
 		if (disposed) return;
 		disposed = true;
+		zoomPersistence.dispose();
 		window.removeEventListener("resize", resizeAndRender);
 		canvas.removeEventListener("wheel", zoomAndRender);
 		canvas.removeEventListener("pointermove", updatePointer);

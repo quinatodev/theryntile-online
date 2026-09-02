@@ -230,6 +230,20 @@ test("Inventory position schema, authentication, validation, ownership, persiste
 		[fixtureUsernames[2]],
 	);
 	assert.deepEqual(initial.rows[0], { inventory_x: null, inventory_y: null });
+	const constraint = await pool.query<{ definition: string }>(
+		"SELECT pg_get_constraintdef(oid) AS definition FROM pg_constraint WHERE conname = 'accounts_inventory_position_pair'",
+	);
+	assert.match(constraint.rows[0]?.definition ?? "", /inventory_x IS NOT NULL/);
+	assert.match(constraint.rows[0]?.definition ?? "", /inventory_y IS NOT NULL/);
+	for (const [x, y] of [[null, 100], [100, null], [-1, 0], [0, -1], [10_001, 0], [0, 10_001]]) {
+		await assert.rejects(
+			pool.query("UPDATE accounts SET inventory_x = $1, inventory_y = $2 WHERE username = $3", [x, y, fixtureUsernames[2]]),
+			(error: { code?: string }) => error.code === "23514",
+		);
+	}
+	await pool.query("UPDATE accounts SET inventory_x = NULL, inventory_y = NULL WHERE username = $1", [fixtureUsernames[2]]);
+	await pool.query("UPDATE accounts SET inventory_x = 0, inventory_y = 10000 WHERE username = $1", [fixtureUsernames[2]]);
+	await pool.query("UPDATE accounts SET inventory_x = NULL, inventory_y = NULL WHERE username = $1", [fixtureUsernames[2]]);
 	const unauthenticated = await server.inject({ method: "PUT", url: "/game/preferences/inventory-position", payload: { x: 120, y: 80 } });
 	assert.equal(unauthenticated.statusCode, 401);
 	const cookie = await loginCookie(fixtureUsernames[2]);
@@ -252,6 +266,55 @@ test("Inventory position schema, authentication, validation, ownership, persiste
 	const restored = await server.inject({ method: "GET", url: "/game/config", headers: { cookie } });
 	assert.equal(restored.statusCode, 200);
 	assert.deepEqual((restored.json() as { inventoryPosition: unknown }).inventoryPosition, { x: 120, y: 80 });
+});
+
+test("Character position schema, constraint, authentication, validation, ownership, persistence, and bootstrap restoration remain coherent", async () => {
+	const schema = await pool.query<{ column_name: string; data_type: string; is_nullable: string }>(
+		"SELECT column_name, data_type, is_nullable FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'accounts' AND column_name = ANY($1::text[]) ORDER BY column_name",
+		[["character_x", "character_y"]],
+	);
+	assert.deepEqual(schema.rows, [
+		{ column_name: "character_x", data_type: "integer", is_nullable: "YES" },
+		{ column_name: "character_y", data_type: "integer", is_nullable: "YES" },
+	]);
+	const constraint = await pool.query<{ definition: string }>(
+		"SELECT pg_get_constraintdef(oid) AS definition FROM pg_constraint WHERE conname = 'accounts_character_position_pair'",
+	);
+	assert.match(constraint.rows[0]?.definition ?? "", /character_x IS NULL/);
+	assert.match(constraint.rows[0]?.definition ?? "", /character_y IS NOT NULL/);
+	const initial = await pool.query<{ character_x: number | null; character_y: number | null }>(
+		"SELECT character_x, character_y FROM accounts WHERE username = $1",
+		[fixtureUsernames[2]],
+	);
+	assert.deepEqual(initial.rows[0], { character_x: null, character_y: null });
+	await assert.rejects(
+		pool.query("UPDATE accounts SET character_x = 10, character_y = NULL WHERE username = $1", [fixtureUsernames[2]]),
+		(error: { code?: string }) => error.code === "23514",
+	);
+	await pool.query("UPDATE accounts SET character_x = NULL, character_y = NULL WHERE username = $1", [fixtureUsernames[2]]);
+	const unauthenticated = await server.inject({ method: "PUT", url: "/game/preferences/character-position", payload: { x: 240, y: 160 } });
+	assert.equal(unauthenticated.statusCode, 401);
+	const cookie = await loginCookie(fixtureUsernames[2]);
+	for (const payload of [
+		{}, { x: 0 }, { x: "1", y: 1 }, { x: 1.5, y: 1 }, { x: 1, y: 1.5 }, { x: -1, y: 1 }, { x: 1, y: -1 },
+		{ x: 10_001, y: 1 }, { x: 1, y: 10_001 }, { accountId: primaryAccountId, x: 1, y: 1 },
+	]) {
+		const rejected = await server.inject({ method: "PUT", url: "/game/preferences/character-position", headers: { cookie }, payload });
+		assert.equal(rejected.statusCode, 400);
+	}
+	const persisted = await server.inject({ method: "PUT", url: "/game/preferences/character-position", headers: { cookie }, payload: { x: 240, y: 160 } });
+	assert.equal(persisted.statusCode, 200);
+	const accounts = await pool.query<{ character_x: number | null; character_y: number | null; username: string }>(
+		"SELECT username, character_x, character_y FROM accounts WHERE username = ANY($1::text[]) ORDER BY username",
+		[[fixtureUsernames[0], fixtureUsernames[2]]],
+	);
+	assert.deepEqual(accounts.rows, [
+		{ username: fixtureUsernames[0], character_x: null, character_y: null },
+		{ username: fixtureUsernames[2], character_x: 240, character_y: 160 },
+	]);
+	const restored = await server.inject({ method: "GET", url: "/game/config", headers: { cookie } });
+	assert.equal(restored.statusCode, 200);
+	assert.deepEqual((restored.json() as { characterPosition: unknown }).characterPosition, { x: 240, y: 160 });
 });
 
 test("Inventory columns schema and authenticated preference accept only widths 4 through 6 per account", async () => {

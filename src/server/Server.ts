@@ -30,7 +30,7 @@ import {
 } from "./auth/Session.js";
 import { addLobbySocket, initializeChannels, replaceAccountConnections, revokeSessionConnections } from "./game/Channels.js";
 import { database } from "./database/Database.js";
-import { createGameBootstrapPayload, isAllowedInventoryColumns, isAllowedInventoryCoordinate, isAllowedZoom } from "./game/GameConfig.js";
+import { createGameBootstrapPayload, isAllowedCharacterCoordinate, isAllowedInventoryColumns, isAllowedInventoryCoordinate, isAllowedZoom } from "./game/GameConfig.js";
 
 const sourceRoot = fileURLToPath(new URL("..", import.meta.url));
 const developmentSource = path.basename(sourceRoot) === "src";
@@ -212,8 +212,8 @@ export async function createServer(): Promise<FastifyInstance> {
 		try {
 			const session = token ? await restoreSessionDetails(token) : null;
 			if (!session) return reply.code(401).send({ error: "UNAUTHENTICATED" });
-			const result = await database.query<{ inventory_columns: number; inventory_x: number | null; inventory_y: number | null; zoom: number }>(
-				"SELECT zoom, inventory_x, inventory_y, inventory_columns FROM accounts WHERE id = $1",
+			const result = await database.query<{ character_x: number | null; character_y: number | null; inventory_columns: number; inventory_x: number | null; inventory_y: number | null; zoom: number }>(
+				"SELECT zoom, inventory_x, inventory_y, inventory_columns, character_x, character_y FROM accounts WHERE id = $1",
 				[session.accountId],
 			);
 			const account = result.rows[0];
@@ -229,8 +229,17 @@ export async function createServer(): Promise<FastifyInstance> {
 				}
 				inventoryPosition = { x: inventoryX, y: inventoryY };
 			}
+			const characterX = account?.character_x;
+			const characterY = account?.character_y;
+			let characterPosition = null;
+			if (characterX !== null || characterY !== null) {
+				if (!isAllowedCharacterCoordinate(characterX) || !isAllowedCharacterCoordinate(characterY)) {
+					throw new Error("Account character position is invalid.");
+				}
+				characterPosition = { x: characterX, y: characterY };
+			}
 
-			return createGameBootstrapPayload(zoom, inventoryPosition, account.inventory_columns);
+			return createGameBootstrapPayload(zoom, inventoryPosition, account.inventory_columns, characterPosition);
 		} catch (error) {
 			request.log.error({ err: error }, "Game configuration failed unexpectedly");
 
@@ -263,6 +272,30 @@ export async function createServer(): Promise<FastifyInstance> {
 			return { success: true };
 		} catch (error) {
 			request.log.error({ err: error }, "Inventory position persistence failed unexpectedly");
+
+			return reply.code(500).send({ error: "INTERNAL_ERROR" });
+		}
+	});
+
+	/** Lang: pt-BR - Persiste a posiÃ§Ã£o de Character somente para a Account autenticada. Lang: en-US - Persists the Character position only for the authenticated Account. */
+	server.put("/game/preferences/character-position", async (request, reply) => {
+		const token = request.cookies[SESSION_COOKIE_NAME];
+		const body = request.body;
+		if (!body || typeof body !== "object" || Array.isArray(body)) return reply.code(400).send({ error: "INVALID_CHARACTER_POSITION" });
+		const position = body as Record<string, unknown>;
+		if (
+			Object.keys(position).length !== 2
+			|| !isAllowedCharacterCoordinate(position.x)
+			|| !isAllowedCharacterCoordinate(position.y)
+		) return reply.code(400).send({ error: "INVALID_CHARACTER_POSITION" });
+		try {
+			const session = token ? await restoreSessionDetails(token) : null;
+			if (!session) return reply.code(401).send({ error: "UNAUTHENTICATED" });
+			await database.query("UPDATE accounts SET character_x = $1, character_y = $2 WHERE id = $3", [position.x, position.y, session.accountId]);
+
+			return { success: true };
+		} catch (error) {
+			request.log.error({ err: error }, "Character position persistence failed unexpectedly");
 
 			return reply.code(500).send({ error: "INTERNAL_ERROR" });
 		}
@@ -363,15 +396,16 @@ export async function createServer(): Promise<FastifyInstance> {
 
 			request.sessionPlayer = session.player;
 			request.sessionId = session.sessionId;
+			request.sessionExpiresAt = session.expiresAt;
 		},
 	}, (socket, request) => {
-		if (!request.sessionPlayer || !request.sessionId) {
+		if (!request.sessionPlayer || !request.sessionId || !request.sessionExpiresAt) {
 			socket.close(1008, "UNAUTHENTICATED");
 
 			return;
 		}
 
-		addLobbySocket(socket, request.sessionPlayer, request.sessionId);
+		addLobbySocket(socket, request.sessionPlayer, request.sessionId, request.sessionExpiresAt);
 	});
 
 	return server;
@@ -379,6 +413,7 @@ export async function createServer(): Promise<FastifyInstance> {
 
 declare module "fastify" {
 	interface FastifyRequest {
+		sessionExpiresAt?: Date;
 		sessionId?: string;
 		sessionPlayer?: { id: number; name: string };
 	}
