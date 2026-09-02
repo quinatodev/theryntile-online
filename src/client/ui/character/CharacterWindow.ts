@@ -14,6 +14,7 @@ const EQUIPMENT_SLOTS = [
 	{ column: 3, label: "Botas", row: 4 },
 ] as const;
 const ATTRIBUTE_NAMES = ["Ataque", "Defesa", "Vida"] as const;
+type CharacterTab = "attributes" | "equipment";
 
 export interface CharacterPosition {
 	x: number;
@@ -27,6 +28,9 @@ interface CharacterWindowOptions {
 
 export class CharacterWindow {
 	readonly element: HTMLElement;
+	private activeTab: CharacterTab | null = null;
+	private readonly attributesButton: HTMLButtonElement;
+	private readonly attributesContent: HTMLElement;
 	private readonly closeButton: HTMLButtonElement;
 	private currentIdleFrame = 0;
 	private readonly header: HTMLElement;
@@ -39,10 +43,18 @@ export class CharacterWindow {
 	private readonly onPositionChange: (position: CharacterPosition) => void;
 	private preferredPosition: CharacterPosition | null;
 	private readonly hanaSprite: HTMLDivElement;
+	private readonly equipmentButton: HTMLButtonElement;
+	private readonly equipmentContent: HTMLElement;
 	private dragStartX = 0;
 	private dragStartY = 0;
 	private readonly closeFromButton = (): void => {
 		this.close();
+	};
+	private readonly showAttributes = (): void => {
+		this.setActiveTab("attributes");
+	};
+	private readonly showEquipment = (): void => {
+		this.setActiveTab("equipment");
 	};
 	private readonly keepCloseButtonOutOfDrag = (event: PointerEvent): void => {
 		event.stopPropagation();
@@ -107,12 +119,27 @@ export class CharacterWindow {
 		this.closeButton.textContent = "×";
 		this.header.append(title, this.closeButton);
 
+		const navigation = document.createElement("nav");
+		navigation.className = "character-window__navigation";
+		navigation.setAttribute("aria-label", "Seções do personagem");
+		this.equipmentButton = document.createElement("button");
+		this.equipmentButton.className = "character-window__tab";
+		this.equipmentButton.type = "button";
+		this.equipmentButton.textContent = "Equipamentos";
+		this.attributesButton = document.createElement("button");
+		this.attributesButton.className = "character-window__tab";
+		this.attributesButton.type = "button";
+		this.attributesButton.textContent = "Atributos";
+		navigation.append(this.equipmentButton, this.attributesButton);
+
 		const body = document.createElement("div");
 		body.className = "character-window__body";
 		const equipment = this.createEquipmentSection();
 		this.hanaSprite = equipment.hanaSprite;
-		body.append(equipment.section, this.createAttributesSection());
-		this.element.append(this.header, body);
+		this.equipmentContent = equipment.section;
+		this.attributesContent = this.createAttributesSection();
+		body.append(this.equipmentContent, this.attributesContent);
+		this.element.append(this.header, navigation, body);
 
 		this.closeButton.addEventListener("click", this.closeFromButton);
 		this.closeButton.addEventListener("pointerdown", this.keepCloseButtonOutOfDrag);
@@ -120,12 +147,16 @@ export class CharacterWindow {
 		this.header.addEventListener("pointermove", this.moveWhileDragging);
 		this.header.addEventListener("pointerup", this.stopDragging);
 		this.header.addEventListener("pointercancel", this.stopDragging);
+		this.equipmentButton.addEventListener("click", this.showEquipment);
+		this.attributesButton.addEventListener("click", this.showAttributes);
 		window.addEventListener("resize", this.keepInsideViewportAfterResize);
+		this.setActiveTab("equipment");
 	}
 
 	open(): void {
 		this.isOpen = true;
 		this.element.hidden = false;
+		this.setActiveTab("equipment");
 		if (!this.hasExplicitPosition && this.preferredPosition) {
 			this.hasExplicitPosition = true;
 			this.element.style.position = "fixed";
@@ -155,6 +186,8 @@ export class CharacterWindow {
 		this.header.removeEventListener("pointermove", this.moveWhileDragging);
 		this.header.removeEventListener("pointerup", this.stopDragging);
 		this.header.removeEventListener("pointercancel", this.stopDragging);
+		this.equipmentButton.removeEventListener("click", this.showEquipment);
+		this.attributesButton.removeEventListener("click", this.showAttributes);
 		window.removeEventListener("resize", this.keepInsideViewportAfterResize);
 		this.element.remove();
 	}
@@ -162,8 +195,6 @@ export class CharacterWindow {
 	private createEquipmentSection(): { hanaSprite: HTMLDivElement; section: HTMLElement } {
 		const section = document.createElement("section");
 		section.className = "character-window__section character-window__equipment";
-		const title = document.createElement("h2");
-		title.textContent = "Equipamentos";
 		const grid = document.createElement("div");
 		grid.className = "character-window__equipment-grid";
 		for (const { column, label: name, row } of EQUIPMENT_SLOTS) {
@@ -190,7 +221,7 @@ export class CharacterWindow {
 		character.append(hanaSprite);
 		grid.append(character);
 
-		section.append(title, grid);
+		section.append(grid);
 
 		return { hanaSprite, section };
 	}
@@ -198,8 +229,6 @@ export class CharacterWindow {
 	private createAttributesSection(): HTMLElement {
 		const section = document.createElement("section");
 		section.className = "character-window__section character-window__attributes";
-		const title = document.createElement("h2");
-		title.textContent = "Atributos";
 		const list = document.createElement("ul");
 		for (const name of ATTRIBUTE_NAMES) {
 			const attribute = document.createElement("li");
@@ -207,7 +236,7 @@ export class CharacterWindow {
 			list.append(attribute);
 		}
 
-		section.append(title, list);
+		section.append(list);
 
 		return section;
 	}
@@ -223,6 +252,24 @@ export class CharacterWindow {
 		const maximumTop = Math.max(0, document.documentElement.clientHeight - bounds.height);
 		this.element.style.left = `${Math.round(Math.min(Math.max(0, left), maximumLeft))}px`;
 		this.element.style.top = `${Math.round(Math.min(Math.max(0, top), maximumTop))}px`;
+	}
+
+	private setActiveTab(tab: CharacterTab): void {
+		if (this.activeTab === tab) {
+			if (this.isOpen && tab === "equipment" && this.idleAnimationTimer === null) this.startIdleAnimation();
+
+			return;
+		}
+		this.activeTab = tab;
+		const equipmentActive = this.activeTab === "equipment";
+		this.equipmentContent.hidden = !equipmentActive;
+		this.attributesContent.hidden = equipmentActive;
+		this.equipmentButton.classList.toggle("character-window__tab--active", equipmentActive);
+		this.attributesButton.classList.toggle("character-window__tab--active", !equipmentActive);
+		this.equipmentButton.setAttribute("aria-pressed", String(equipmentActive));
+		this.attributesButton.setAttribute("aria-pressed", String(!equipmentActive));
+		if (this.isOpen && equipmentActive) this.startIdleAnimation();
+		else this.stopIdleAnimation();
 	}
 
 	private startIdleAnimation(): void {
