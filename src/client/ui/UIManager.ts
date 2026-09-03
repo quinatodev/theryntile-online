@@ -2,6 +2,7 @@ import { Backpack, type InventoryPosition } from "./inventory/Backpack.js";
 import { InventoryButton } from "./inventory/InventoryButton.js";
 import { CharacterButton } from "./character/CharacterButton.js";
 import { type CharacterPosition, CharacterWindow } from "./character/CharacterWindow.js";
+import { PortalWindow } from "./portal/PortalWindow.js";
 
 /**
  * Lang: pt-BR
@@ -17,6 +18,7 @@ export class UIManager {
 	private readonly inventoryButton: InventoryButton;
 	private readonly element: HTMLDivElement;
 	private disposed = false;
+	private readonly portalWindow: PortalWindow;
 
 	constructor(
 		root: HTMLElement,
@@ -26,6 +28,7 @@ export class UIManager {
 		onInventoryPositionChange: (position: InventoryPosition) => void,
 		initialCharacterPosition: CharacterPosition | null,
 		onCharacterPositionChange: (position: CharacterPosition) => void,
+		onPortalConfirm: (portalId: string) => boolean,
 	) {
 		this.element = document.createElement("div");
 		this.element.className = "game-ui__layout";
@@ -41,6 +44,7 @@ export class UIManager {
 			onPositionChange: onCharacterPositionChange,
 		});
 		this.characterButton = new CharacterButton(() => this.characterWindow.toggle());
+		this.portalWindow = new PortalWindow(onPortalConfirm);
 		const backpackRegion = document.createElement("div");
 		backpackRegion.className = "game-ui__backpack-region";
 		backpackRegion.append(this.backpack.element);
@@ -50,7 +54,7 @@ export class UIManager {
 		const controls = document.createElement("div");
 		controls.className = "game-ui__controls";
 		controls.append(this.characterButton.element, this.inventoryButton.element);
-		this.element.append(backpackRegion, characterRegion, controls);
+		this.element.append(backpackRegion, characterRegion, controls, this.portalWindow.element);
 		root.append(this.element);
 	}
 
@@ -61,6 +65,9 @@ export class UIManager {
 		this.backpack.dispose();
 		this.characterButton.dispose();
 		this.characterWindow.dispose();
+		this.portalWindow.dispose();
 		this.element.remove();
 	}
+
+	showPortal(portalId: string): void { if (!this.disposed) this.portalWindow.show(portalId); }
 }

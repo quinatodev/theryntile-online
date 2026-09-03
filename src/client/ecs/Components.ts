@@ -15,6 +15,8 @@ export interface PlayerComponent {
 	id: number;
 	name: string;
 }
+export interface CreatureComponent { id: string; species: "stag"; }
+export interface PortalComponent { id: string; frameWidth: number; frameHeight: number; frameCount: number; }
 
 export interface TileComponent {
 	textureId: number;
@@ -38,6 +40,7 @@ export type AnimationDirection = "left_down" | "left_top" | "right_down" | "righ
 export interface AnimationComponent {
 	direction: AnimationDirection;
 	frame: number;
+	frameCounts?: { idle: number; walk: number };
 	startedAt?: number;
 	state: "idle" | "walk";
 }

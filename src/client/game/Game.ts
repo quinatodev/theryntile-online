@@ -16,7 +16,7 @@ import { WalkHintSystem } from "../ecs/systems/WalkHintSystem.js";
 import { World } from "../ecs/World.js";
 import { changeCameraZoom, type Camera } from "../engine/Camera.js";
 import { resizeCanvasToViewport } from "../engine/Canvas.js";
-import { createPlayerEntity, createTileEntity } from "./Entities.js";
+import { createCreatureEntity, createPlayerEntity, createPortalEntity, createTileEntity } from "./Entities.js";
 import { getMapBounds, getMapLayers, getMapTileIds, isCellWalkable } from "./Map.js";
 import { findPath } from "./Navigation.js";
 import { type GameRuntimeConfig } from "./MapConfig.js";
@@ -45,6 +45,8 @@ export interface Game {
 	playerMoved(message: PlayerMoved): void;
 	playersResync(message: PlayersResync): void;
 	start(): void;
+	getZoom(): number;
+	creatureMoved(message: { creatureId: string; fromRow: number; fromColumn: number; row: number; column: number; sequence: number; startedAt: number; endsAt: number; serverTime: number }): void;
 }
 
 /**
@@ -153,6 +155,7 @@ export async function startGame(
 	saveZoom: (zoom: number) => Promise<void>,
 	onFatalError: (error: unknown) => void = () => {},
 	requestPlayersResync: () => boolean = () => false,
+	initialCreatures: readonly { id: string; species: "stag"; row: number; column: number; sequence: number }[] = [],
 ): Promise<Game> {
 	const context = canvas.getContext("2d");
 	if (!context) throw new Error("Canvas 2D is not available.");
@@ -167,7 +170,10 @@ export async function startGame(
 	const walkHintSystem = new WalkHintSystem(config.map, config.tileDefinitions, config.movement.maxSteps);
 	const renderSystem = await RenderSystem.create(surface, getMapTileIds(config.map));
 	const playerEntities = new Map<number, Entity>();
+	const creatureEntities = new Map<string, Entity>();
 	addTileEntities(world, config);
+	for (const portal of (config.portals ?? []).filter(({ mapId }) => mapId === config.mapId)) createPortalEntity(world, portal);
+	for (const creature of initialCreatures) creatureEntities.set(creature.id, createCreatureEntity(world, creature));
 	const mapBounds = getMapBounds(config.map);
 	for (const player of [localPlayer, ...initialRemotePlayers]) {
 		if (player.row < 0 || player.row >= mapBounds.rows || player.column < 0 || player.column >= mapBounds.columns) {
@@ -339,6 +345,14 @@ export async function startGame(
 	};
 
 	return {
+		getZoom() { return camera.zoom; },
+		creatureMoved(message) {
+			if (disposed || !isCellWalkable(config.map, config.tileDefinitions, message.row, message.column)) return;
+			const entity = creatureEntities.get(message.creatureId); if (entity === undefined) return;
+			observeServerTime(message.serverTime);
+			enqueueMovementStep(world, entity, { ...message, column: message.column, finalStep: true });
+			ensureAnimationFrame();
+		},
 		/** Lang: pt-BR - Expõe o cleanup idempotente. Lang: en-US - Exposes idempotent cleanup. */
 		dispose() {
 			disposeRuntime();

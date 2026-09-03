@@ -10,7 +10,7 @@
 import { type ChannelState, type EnterChannelRejectionReason, type PlayerMovedMessage, type PlayerState } from "../realtime/Protocol.js";
 import { startGame, type Game } from "../game/Game.js";
 import { createRealtime } from "../realtime/Realtime.js";
-import { parseGameBootstrapConfig } from "../game/MapConfig.js";
+import { parseGameBootstrapConfig, parseRuntimeMap, type GameRuntimeConfig } from "../game/MapConfig.js";
 import { UIManager } from "../ui/UIManager.js";
 import { type InventoryPosition } from "../ui/inventory/Backpack.js";
 import { type CharacterPosition } from "../ui/character/CharacterWindow.js";
@@ -54,6 +54,7 @@ let realtimeConnected = false;
 let enterChannelPending = false;
 let game: Game | null = null;
 let ui: UIManager | null = null;
+let activeConfig: GameRuntimeConfig | null = null;
 let loadingPlayerEvents: Array<
 	{ type: "joined"; player: PlayerState }
 	| { type: "left"; playerId: number }
@@ -105,6 +106,7 @@ const invalidateGame = () => {
 
 	game?.dispose();
 	game = null;
+	activeConfig = null;
 	ui?.dispose();
 	ui = null;
 };
@@ -326,6 +328,7 @@ const realtime = createRealtime({
 				throw new Error(`GAME_CONFIG_FAILED: HTTP ${configResponse.status}; ${responseBody}`);
 			}
 			const bootstrap = parseGameBootstrapConfig(await configResponse.json());
+			activeConfig = bootstrap;
 			let lastPersistedInventoryColumns = bootstrap.inventoryColumns;
 			let inventoryColumnsSave = Promise.resolve();
 			const saveInventoryColumns = (columns: number): void => {
@@ -432,6 +435,7 @@ const realtime = createRealtime({
 				saveInventoryPosition,
 				bootstrap.characterPosition,
 				saveCharacterPosition,
+				(portalId) => realtime.usePortal(portalId),
 			);
 
 			startedGame.start();
@@ -475,6 +479,20 @@ const realtime = createRealtime({
 	onPlayersResync(message) {
 		game?.playersResync(message);
 	},
+	onPortalAvailable(portalId) { ui?.showPortal(portalId); },
+	async onMapChanged(message) {
+		if (!game || !activeConfig) return;
+		const zoomPreference = game.getZoom();
+		const nextConfig: GameRuntimeConfig = { ...activeConfig, mapId: message.mapId, map: parseRuntimeMap(message.map), portals: [], zoomPreference };
+		try {
+			const nextGame = await startGame(gameCanvas, message.player, message.players, (row, column) => realtime.move(row, column), nextConfig, async (zoom) => {
+				const response = await fetch("/game/preferences/zoom", { body: JSON.stringify({ zoom }), headers: { "Content-Type": "application/json" }, method: "PUT" });
+				if (!response.ok) throw new Error("ZOOM_SAVE_FAILED");
+			}, (error) => { console.error("Game runtime failed.", error); realtime.close(); showLogin(GAME_START_FAILED_MESSAGE); }, () => realtime.requestPlayersResync(), message.creatures);
+			game.dispose(); game = nextGame; activeConfig = nextConfig; nextGame.start();
+		} catch (error) { console.error("Map transition failed.", error); realtime.close(); showLogin(GAME_START_FAILED_MESSAGE); }
+	},
+	onCreatureMoved(message) { game?.creatureMoved(message); },
 
 	// Lang: pt-BR
 	// O close explícito faz estes motivos específicos prevalecerem sobre o callback genérico de disconnect.

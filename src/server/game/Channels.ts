@@ -12,6 +12,8 @@ import { closeSocketAfterSend, createInitializationGuard, isValidChannelCapacity
 import { getAuthorizedPath } from "./Navigation.js";
 import { getRandomSpawn } from "./Spawn.js";
 import { RouteState } from "./RouteState.js";
+import { GAME_CONFIG } from "./GameConfig.js";
+import { authorizePortalUse, findPortal, getRoamingCandidates, resolvePortalInstanceId, type PortalDestination } from "./Portals.js";
 
 interface ChannelRow {
 	id: number;
@@ -40,7 +42,12 @@ interface ChannelPlayer extends AuthenticatedPlayer {
 	sequence: number;
 	movement: AuthoritativeMovementStep | null;
 	socket: ChannelSocket;
+	mapId: keyof typeof GAME_CONFIG.maps;
+	instanceId: string;
 }
+
+interface CreatureState { id: string; species: "stag"; row: number; column: number; sequence: number; }
+interface MapInstance { id: string; mapId: PortalDestination; creatures: CreatureState[]; timer: ReturnType<typeof setTimeout> | null; }
 
 interface AuthoritativeMovementStep {
 	fromRow: number; fromColumn: number; row: number; column: number;
@@ -50,6 +57,7 @@ interface AuthoritativeMovementStep {
 export interface RuntimeChannel extends ChannelRow {
 	members: Set<ChannelSocket>;
 	players: ChannelPlayer[];
+	instances: Map<string, MapInstance>;
 }
 
 type RejectionReason = "CHANNEL_NOT_FOUND" | "CHANNEL_FULL" | "ALREADY_IN_CHANNEL" | "INVALID_REQUEST" | "NO_SPAWN_AVAILABLE";
@@ -66,6 +74,8 @@ const sessionExpirationTimers = new Map<ChannelSocket, ReturnType<typeof setTime
 const closingSockets = new WeakSet<ChannelSocket>();
 const OPEN_SOCKET_STATE = 1;
 const MOVEMENT_STEP_MS = 500;
+const CREATURE_STEP_MS = 500;
+const CREATURE_PAUSE_MS = 1_500;
 const activeRoutes = new RouteState<ChannelSocket>();
 const claimInitialization = createInitializationGuard();
 
@@ -75,22 +85,12 @@ const serializePlayer = ({ id, name, row, column, sequence }: ChannelPlayer) => 
 /** Lang: pt-BR - Expõe somente estado lógico e passo temporal atual no resync. Lang: en-US - Exposes only logical state and the current temporal step during resync. */
 const serializePlayerResync = (player: ChannelPlayer) => ({ ...serializePlayer(player), movement: player.movement });
 
-/**
- * Lang: pt-BR
- * Envia uma mensagem aos members OPEN, com exclusão opcional do originador.
- *
- * Lang: en-US
- * Sends a message to OPEN members, optionally excluding its originator.
- */
-const sendToChannel = (channel: RuntimeChannel, message: object, except?: ChannelSocket) => {
+const sendToInstance = (channel: RuntimeChannel, instanceId: string, message: object, except?: ChannelSocket) => {
 	const data = JSON.stringify(message);
-
-	for (const member of channel.members) {
-		if (member !== except && member.readyState === OPEN_SOCKET_STATE) {
-			member.send(data);
-		}
-	}
+	for (const player of channel.players) if (player.instanceId === instanceId && player.socket !== except && player.socket.readyState === OPEN_SOCKET_STATE) player.socket.send(data);
 };
+
+const playersInInstance = (channel: RuntimeChannel, instanceId: string) => channel.players.filter((player) => player.instanceId === instanceId);
 
 /** Lang: pt-BR - Projeta o estado público e sua população atual. Lang: en-US - Projects public state and current population. */
 const channelState = (channel: RuntimeChannel) => ({
@@ -143,7 +143,7 @@ const enterChannel = (socket: ChannelSocket, identity: AuthenticatedPlayer, chan
 		return;
 	}
 
-	const existingPlayers = channel.players.map(serializePlayer);
+	const existingPlayers = playersInInstance(channel, "lobby").map(serializePlayer);
 
 	// Lang: pt-BR
 	// Spawn é resolvido antes da mutation; tiles livres são preferidos, mas stacking é um fallback válido.
@@ -151,7 +151,7 @@ const enterChannel = (socket: ChannelSocket, identity: AuthenticatedPlayer, chan
 	// Spawn is resolved before mutation; free tiles are preferred, but stacking is a valid fallback.
 	const spawn = getRandomSpawn(channel.players);
 
-	const player: ChannelPlayer = { ...identity, ...spawn, sequence: 0, movement: null, socket };
+	const player: ChannelPlayer = { ...identity, ...spawn, sequence: 0, movement: null, socket, mapId: "lobby", instanceId: "lobby" };
 
 	channel.members.add(socket);
 	channel.players.push(player);
@@ -164,7 +164,7 @@ const enterChannel = (socket: ChannelSocket, identity: AuthenticatedPlayer, chan
 		players: existingPlayers,
 	}));
 
-	sendToChannel(channel, { type: "PLAYER_JOINED", player: serializePlayer(player) }, socket);
+	sendToInstance(channel, player.instanceId, { type: "PLAYER_JOINED", player: serializePlayer(player) }, socket);
 
 	broadcastChannelPopulation(channel.id);
 };
@@ -184,7 +184,7 @@ const movePlayer = (socket: ChannelSocket, row: number, column: number) => {
 	if (!channel || !player || activeRoutes.has(socket)) {
 		return;
 	}
-	const path = getAuthorizedPath(player, { row, column });
+	const path = getAuthorizedPath(player, { row, column }, GAME_CONFIG.maps[player.mapId]);
 	if (!path) return;
 	const steps = [...path];
 	if (!activeRoutes.begin(socket)) return;
@@ -207,7 +207,7 @@ const movePlayer = (socket: ChannelSocket, row: number, column: number) => {
 		};
 		player.sequence = movement.sequence;
 		player.movement = movement;
-		sendToChannel(channel, {
+		sendToInstance(channel, player.instanceId, {
 			type: "PLAYER_MOVED", playerId: player.id, ...movement, serverTime: startedAt,
 		});
 		const timer = setTimeout(() => {
@@ -215,13 +215,59 @@ const movePlayer = (socket: ChannelSocket, row: number, column: number) => {
 			player.row = movement.row;
 			player.column = movement.column;
 			player.movement = null;
-			if (movement.finalStep) activeRoutes.cancel(socket);
+			if (movement.finalStep) {
+				activeRoutes.cancel(socket);
+				const portal = findPortal(player.mapId, player.row, player.column);
+				if (portal) socket.send(JSON.stringify({ type: "PORTAL_AVAILABLE", portalId: portal.id }));
+			}
 			else emitNextStep();
 		}, MOVEMENT_STEP_MS);
 		activeRoutes.setTimer(socket, timer);
 	};
 
 	emitNextStep();
+};
+
+const scheduleCreature = (channel: RuntimeChannel, instance: MapInstance) => {
+	if (instance.timer || playersInInstance(channel, instance.id).length === 0) return;
+	instance.timer = setTimeout(() => {
+		instance.timer = null;
+		const creature = instance.creatures[0];
+		if (!creature || playersInInstance(channel, instance.id).length === 0) return;
+		const candidates = getRoamingCandidates(creature.row, creature.column, 10, 10);
+		const next = candidates[Math.floor(Math.random() * candidates.length)];
+		if (next) {
+			const startedAt = Date.now();
+			const message = { type: "CREATURE_MOVED", creatureId: creature.id, fromRow: creature.row, fromColumn: creature.column, ...next, sequence: ++creature.sequence, startedAt, endsAt: startedAt + CREATURE_STEP_MS, serverTime: startedAt };
+			creature.row = next.row; creature.column = next.column;
+			sendToInstance(channel, instance.id, message);
+		}
+		scheduleCreature(channel, instance);
+	}, CREATURE_PAUSE_MS);
+	instance.timer.unref();
+};
+
+const usePortal = (socket: ChannelSocket, portalId: string) => {
+	const channel = channels.find(({ members }) => members.has(socket));
+	const player = channel?.players.find((candidate) => candidate.socket === socket);
+	if (!channel || !player || activeRoutes.has(socket)) return;
+	const portal = authorizePortalUse(player.mapId, player.row, player.column, portalId);
+	if (!portal) return;
+	const previousInstance = player.instanceId;
+	const instanceId = resolvePortalInstanceId(portal, player.id);
+	let instance = channel.instances.get(instanceId);
+	if (!instance) {
+		instance = { id: instanceId, mapId: portal.destinationMapId, creatures: [{ id: `stag:${instanceId}`, species: "stag", row: 5, column: 5, sequence: 0 }], timer: null };
+		channel.instances.set(instanceId, instance);
+	}
+	sendToInstance(channel, previousInstance, { type: "PLAYER_LEFT", playerId: player.id }, socket);
+	player.mapId = portal.destinationMapId;
+	player.instanceId = instanceId;
+	player.row = 4; player.column = 4; player.sequence = 0; player.movement = null;
+	const peers = playersInInstance(channel, instanceId).filter((candidate) => candidate !== player);
+	socket.send(JSON.stringify({ type: "MAP_CHANGED", mapId: instance.mapId, map: GAME_CONFIG.maps[instance.mapId], player: serializePlayer(player), players: peers.map(serializePlayer), creatures: instance.creatures }));
+	sendToInstance(channel, instanceId, { type: "PLAYER_JOINED", player: serializePlayer(player) }, socket);
+	scheduleCreature(channel, instance);
 };
 
 /**
@@ -268,13 +314,19 @@ const handleMessage = (socket: ChannelSocket, identity: AuthenticatedPlayer, dat
 			return;
 		}
 
+		if (message.type === "USE_PORTAL" && typeof message.portalId === "string" && message.portalId.length > 0 && keys.length === 2 && keys.includes("portalId")) {
+			usePortal(socket, message.portalId);
+
+			return;
+		}
+
 		if (message.type === "RESYNC_PLAYERS" && keys.length === 1) {
 			const channel = channels.find(({ members }) => members.has(socket));
 			if (!channel) return;
 			socket.send(JSON.stringify({
 				type: "PLAYERS_RESYNC",
 				serverTime: Date.now(),
-				players: channel.players.map(serializePlayerResync),
+				players: playersInInstance(channel, channel.players.find((candidate) => candidate.socket === socket)?.instanceId ?? "").map(serializePlayerResync),
 			}));
 		}
 	} catch {
@@ -311,7 +363,12 @@ const handleClose = (socket: ChannelSocket, accountId: number) => {
 		const [player] = playerIndex === -1 ? [] : channel.players.splice(playerIndex, 1);
 
 		if (player) {
-			sendToChannel(channel, { type: "PLAYER_LEFT", playerId: player.id });
+			sendToInstance(channel, player.instanceId, { type: "PLAYER_LEFT", playerId: player.id });
+			if (playersInInstance(channel, player.instanceId).length === 0) {
+				const instance = channel.instances.get(player.instanceId);
+				if (instance?.timer) clearTimeout(instance.timer);
+				channel.instances.delete(player.instanceId);
+			}
 		}
 
 		broadcastChannelPopulation(channel.id);
@@ -330,6 +387,7 @@ const handleClose = (socket: ChannelSocket, accountId: number) => {
 export async function initializeChannels(): Promise<void> {
 	claimInitialization();
 	activeRoutes.clear();
+	for (const channel of channels) for (const instance of channel.instances.values()) if (instance.timer) clearTimeout(instance.timer);
 	const result = await database.query<ChannelRow>(
 		"SELECT id, name, capacity FROM game_servers ORDER BY id",
 	);
@@ -341,6 +399,7 @@ export async function initializeChannels(): Promise<void> {
 		...channel,
 		members: new Set<ChannelSocket>(),
 		players: [],
+		instances: new Map<string, MapInstance>(),
 	})));
 }
 

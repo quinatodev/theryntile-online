@@ -1,4 +1,6 @@
 import { Newbie } from "./map/Newbie.js";
+import { MultiplayerTest, SingleplayerTest } from "./map/TestMaps.js";
+import { PORTALS } from "./Portals.js";
 import { validateMapDefinition } from "./Map.js";
 import { getTileDefinitions } from "./TileRegistry.js";
 
@@ -12,7 +14,7 @@ import { getTileDefinitions } from "./TileRegistry.js";
  * Each definition remains in its own file; the plain registry has no lifecycle or mutation.
  */
 export const GAME_CONFIG = {
-	maps: { lobby: Newbie },
+	maps: { lobby: Newbie, "multiplayer-test": MultiplayerTest, "singleplayer-test": SingleplayerTest },
 	movement: { maxSteps: 8 },
 	zoom: { max: 5, min: 2 },
 } as const;
@@ -54,6 +56,7 @@ export const createGameBootstrapPayload = (
 		inventoryColumns,
 		map,
 		mapId: INITIAL_MAP_ID,
+		portals: PORTALS.filter(({ mapId }) => mapId === INITIAL_MAP_ID),
 		movement: GAME_CONFIG.movement,
 		inventoryPosition,
 		tileDefinitions: getTileDefinitions(),

@@ -49,6 +49,16 @@ export interface ScreenAabb {
 	minY: number;
 }
 
+export interface SourceRectangle { x: number; y: number; width: number; height: number; }
+
+/** Lang: pt-BR - Recorta um frame físico de uma spritesheet horizontal sem confundir tamanho e quantidade. Lang: en-US - Crops one physical frame from a horizontal spritesheet without conflating size and count. */
+export const getHorizontalFrameSource = (frame: number, frameWidth: number, frameHeight: number, frameCount: number): SourceRectangle => ({
+	x: (frame % frameCount) * frameWidth,
+	y: 0,
+	width: frameWidth,
+	height: frameHeight,
+});
+
 /** Lang: pt-BR - Projeta world space na viewport com câmera e zoom. Lang: en-US - Projects world space onto the viewport with camera and zoom. */
 export const worldToScreen = (point: Point, camera: Camera, viewportWidth: number, viewportHeight: number): Point => ({
 	x: (point.x - camera.x) * camera.zoom + viewportWidth / 2,
@@ -80,6 +90,8 @@ interface PlayerDrawable extends RenderOrder {
 	entity: Entity;
 	kind: "player";
 }
+interface CreatureDrawable extends RenderOrder { entity: Entity; kind: "creature"; }
+interface PortalDrawable extends RenderOrder { entity: Entity; kind: "portal"; }
 
 interface TileDrawable extends RenderOrder {
 	entity: Entity;
@@ -94,7 +106,7 @@ interface HighlightDrawable extends RenderOrder {
 
 export type HighlightState = HighlightDrawable["state"];
 
-type Drawable = HighlightDrawable | PlayerDrawable | TileDrawable;
+type Drawable = HighlightDrawable | PlayerDrawable | TileDrawable | CreatureDrawable | PortalDrawable;
 
 /**
  * Lang: pt-BR
@@ -232,12 +244,15 @@ export class RenderSystem {
 		private readonly surface: CanvasSurface,
 		private readonly tileTextures: ReadonlyMap<number, HTMLImageElement>,
 		private readonly playerTextures: ReadonlyMap<string, HTMLImageElement>,
+		private readonly creatureTextures: ReadonlyMap<string, HTMLImageElement>,
+		private readonly portalTexture: HTMLImageElement,
 	) {}
 
 	/** Lang: pt-BR - Pré-carrega somente os assets exigidos pelo runtime. Lang: en-US - Preloads only assets required by the runtime. */
 	static async create(surface: CanvasSurface, tileIds: readonly number[]): Promise<RenderSystem> {
 		const tileTextures = new Map<number, HTMLImageElement>();
 		const playerTextures = new Map<string, HTMLImageElement>();
+		const creatureTextures = new Map<string, HTMLImageElement>();
 		const directions = ["left_down", "left_top", "right_down", "right_top"] as const;
 
 		await Promise.all([
@@ -246,9 +261,14 @@ export class RenderSystem {
 				const key = `${state}_${direction}`;
 				playerTextures.set(key, await loadImage(`/assets/textures/characters/hana/${key}.png`));
 			})),
+			...directions.flatMap((direction) => ["idle", "walk"].map(async (state) => {
+				const key = `${state}_${direction}`;
+				const stagDirection = direction.replace("top", "up");
+				creatureTextures.set(key, await loadImage(`/assets/textures/characters/stag/${state}_${stagDirection}.png`));
+			})),
 		]);
 
-		return new RenderSystem(surface, tileTextures, playerTextures);
+		return new RenderSystem(surface, tileTextures, playerTextures, creatureTextures, await loadImage("/assets/textures/portals/green.png"));
 	}
 
 	/** Lang: pt-BR - Desenha um frame sem mutar identidade ou posição lógica. Lang: en-US - Draws one frame without mutating identity or logical position. */
@@ -303,6 +323,14 @@ export class RenderSystem {
 				tieBreaker: player.id,
 			});
 		}
+		for (const [entity] of world.creatures) {
+			const grid = world.gridPositions.get(entity); const renderable = world.renderables.get(entity);
+			if (grid && renderable) drawables.push({ ...getRenderableRenderOrder(getMovementSortingGrid(grid, world.movements.get(entity)), renderable, entity), entity, kind: "creature", tieBreaker: entity });
+		}
+		for (const [entity] of world.portals) {
+			const grid = world.gridPositions.get(entity); const renderable = world.renderables.get(entity);
+			if (grid && renderable) drawables.push({ ...getRenderableRenderOrder(grid, renderable, entity), entity, kind: "portal", tieBreaker: entity });
+		}
 
 		drawables.sort(compareRenderOrder);
 		context.clearRect(0, 0, element.width, element.height);
@@ -347,17 +375,26 @@ export class RenderSystem {
 				context.restore();
 				continue;
 			}
+			if (drawable.kind === "portal") {
+				const portal = world.portals.get(drawable.entity);
+				if (!portal) continue;
+				const position = getTileVisualPosition(drawable, drawable.layer); const screen = toScreen(position.x, position.y);
+				const source = getHorizontalFrameSource(Math.floor(timestamp / 120), portal.frameWidth, portal.frameHeight, portal.frameCount);
+				const width = portal.frameWidth * camera.zoom; const height = portal.frameHeight * camera.zoom;
+				context.drawImage(this.portalTexture, source.x, source.y, source.width, source.height, Math.round(screen.x - width / 2), Math.round(screen.y + TILE_FOOTPRINT_HEIGHT * camera.zoom - height), width, height);
+				continue;
+			}
 
 			const visualPosition = world.visualPositions.get(drawable.entity);
 			const sprite = world.sprites.get(drawable.entity);
 			const animation = world.animations.get(drawable.entity);
 
 			if (!visualPosition || !sprite || !animation) continue;
-			const texture = this.playerTextures.get(`${animation.state}_${animation.direction}`);
+			const texture = drawable.kind === "creature" ? this.creatureTextures.get(`${animation.state}_${animation.direction}`) : this.playerTextures.get(`${animation.state}_${animation.direction}`);
 
 			if (!texture) continue;
 			const feet = toScreen(visualPosition.x, visualPosition.y + sprite.feetOffsetY);
-			const frame = animation.frame % ANIMATION_FRAME_COUNT;
+			const source = getHorizontalFrameSource(animation.frame, sprite.frameWidth, sprite.frameHeight, animation.frameCounts?.[animation.state] ?? ANIMATION_FRAME_COUNT);
 			const drawPosition = applySpriteOffset({
 				x: feet.x - sprite.frameWidth * camera.zoom / 2,
 				y: feet.y - sprite.frameHeight * camera.zoom,
@@ -373,10 +410,10 @@ export class RenderSystem {
 
 			context.drawImage(
 				texture,
-				frame * sprite.frameWidth,
-				0,
-				sprite.frameWidth,
-				sprite.frameHeight,
+				source.x,
+				source.y,
+				source.width,
+				source.height,
 				Math.round(drawPosition.x),
 				Math.round(drawPosition.y),
 				width,

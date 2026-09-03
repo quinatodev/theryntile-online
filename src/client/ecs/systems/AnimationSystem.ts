@@ -19,7 +19,8 @@ export class AnimationSystem {
 			animation.startedAt ??= timestamp;
 			const elapsed = Math.max(0, timestamp - animation.startedAt);
 			const framesPerSecond = animation.state === "idle" ? IDLE_FRAMES_PER_SECOND : WALK_FRAMES_PER_SECOND;
-			animation.frame = Math.floor(elapsed * framesPerSecond / 1_000) % ANIMATION_FRAME_COUNT;
+			const frameCount = animation.frameCounts?.[animation.state] ?? ANIMATION_FRAME_COUNT;
+			animation.frame = Math.floor(elapsed * framesPerSecond / 1_000) % frameCount;
 		}
 	}
 }

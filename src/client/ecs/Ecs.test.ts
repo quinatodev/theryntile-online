@@ -236,8 +236,12 @@ test("AnimationSystem derives looping idle and walk frames from timestamps", () 
 	const world = new World();
 	const idle = world.createEntity();
 	const walk = world.createEntity();
+	const stagIdle = world.createEntity();
+	const stagWalk = world.createEntity();
 	world.animations.set(idle, { direction: "left_down", frame: 0, startedAt: 0, state: "idle" });
 	world.animations.set(walk, { direction: "left_top", frame: 0, startedAt: 0, state: "walk" });
+	world.animations.set(stagIdle, { direction: "left_down", frame: 0, frameCounts: { idle: 24, walk: 11 }, startedAt: 0, state: "idle" });
+	world.animations.set(stagWalk, { direction: "left_down", frame: 0, frameCounts: { idle: 24, walk: 11 }, startedAt: 0, state: "walk" });
 	const system = new AnimationSystem();
 	system.update(world, 125);
 	assert.equal(world.animations.get(idle)?.frame, 1);
@@ -245,6 +249,8 @@ test("AnimationSystem derives looping idle and walk frames from timestamps", () 
 	system.update(world, 1_000);
 	assert.equal(world.animations.get(idle)?.frame, 0);
 	assert.equal(world.animations.get(walk)?.frame, 0);
+	assert.equal(world.animations.get(stagIdle)?.frame, 8);
+	assert.equal(world.animations.get(stagWalk)?.frame, 5);
 });
 
 test("CameraSystem follows the Local Player VisualPosition feet", () => {

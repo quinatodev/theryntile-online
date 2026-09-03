@@ -7,6 +7,7 @@
  */
 import {
 	type AnimationComponent,
+	type CreatureComponent, type PortalComponent,
 	type Entity,
 	type GridPosition,
 	type MovementComponent,
@@ -29,6 +30,8 @@ import { CLIENT_CONFIG } from "../game/ClientConfig.js";
 export class World {
 	readonly animations = new Map<Entity, AnimationComponent>();
 	readonly entities = new Set<Entity>();
+	readonly creatures = new Map<Entity, CreatureComponent>();
+	readonly portals = new Map<Entity, PortalComponent>();
 	readonly gridPositions = new Map<Entity, GridPosition>();
 	readonly hoveredTiles = new Set<Entity>();
 	readonly hintedTiles = new Set<Entity>();
@@ -62,6 +65,8 @@ export class World {
 	/** Lang: pt-BR - Remove a Entity de todos os stores. Lang: en-US - Removes the Entity from every store. */
 	removeEntity(entity: Entity): void {
 		this.entities.delete(entity);
+		this.creatures.delete(entity);
+		this.portals.delete(entity);
 		this.animations.delete(entity);
 		this.gridPositions.delete(entity);
 		this.hoveredTiles.delete(entity);

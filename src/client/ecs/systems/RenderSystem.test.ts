@@ -10,6 +10,7 @@ import {
 	getHighlightDiamond,
 	getHighlightFillStyle,
 	getHighlightRenderOrder,
+	getHorizontalFrameSource,
 	getMovementSortingGrid,
 	getRenderableRenderOrder,
 	getTileFeedbackState,
@@ -19,6 +20,14 @@ import {
 	type RenderOrder,
 	worldToScreen,
 } from "./RenderSystem.js";
+
+test("horizontal source rectangles retain physical Portal and Stag frame dimensions", () => {
+	assert.deepEqual(getHorizontalFrameSource(0, 32, 32, 6), { x: 0, y: 0, width: 32, height: 32 });
+	assert.deepEqual(getHorizontalFrameSource(5, 32, 32, 6), { x: 160, y: 0, width: 32, height: 32 });
+	assert.deepEqual(getHorizontalFrameSource(6, 32, 32, 6), { x: 0, y: 0, width: 32, height: 32 });
+	assert.deepEqual(getHorizontalFrameSource(23, 32, 48, 24), { x: 736, y: 0, width: 32, height: 48 });
+	assert.deepEqual(getHorizontalFrameSource(10, 32, 48, 11), { x: 320, y: 0, width: 32, height: 48 });
+});
 
 interface NamedRenderOrder extends RenderOrder { name: string; }
 

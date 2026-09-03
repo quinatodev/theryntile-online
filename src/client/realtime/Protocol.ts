@@ -37,6 +37,12 @@ export interface MoveMessage {
 	column: number;
 }
 
+export interface UsePortalMessage { type: "USE_PORTAL"; portalId: string; }
+export interface PortalAvailableMessage { type: "PORTAL_AVAILABLE"; portalId: string; }
+export interface CreatureState { id: string; species: "stag"; row: number; column: number; sequence: number; }
+export interface CreatureMovedMessage { type: "CREATURE_MOVED"; creatureId: string; fromRow: number; fromColumn: number; row: number; column: number; sequence: number; startedAt: number; endsAt: number; serverTime: number; }
+export interface MapChangedMessage { type: "MAP_CHANGED"; mapId: string; map: Record<string, unknown>; player: PlayerState; players: PlayerState[]; creatures: CreatureState[]; }
+
 export interface PlayerState {
 	id: number;
 	name: string;
@@ -109,6 +115,7 @@ export type RealtimeMessage = ChannelsStateMessage
 	| PlayerLeftMessage
 	| PlayerMovedMessage
 	| PlayersResyncMessage
+	| PortalAvailableMessage | CreatureMovedMessage | MapChangedMessage
 	| SessionReplacedMessage
 	| SessionRevokedMessage;
 
@@ -251,6 +258,15 @@ export function parseRealtimeMessage(data: string): RealtimeMessage | null {
 		if (message.type === "PLAYER_JOINED" && isPlayerState(message.player)) {
 			return { type: "PLAYER_JOINED", player: message.player };
 		}
+
+		if (message.type === "PORTAL_AVAILABLE" && typeof message.portalId === "string" && message.portalId.length > 0) return { type: "PORTAL_AVAILABLE", portalId: message.portalId };
+		if (message.type === "CREATURE_MOVED" && typeof message.creatureId === "string" && isPlayerMovementState({ ...message, finalStep: true }) && isNonNegativeInteger(message.serverTime)) return message as unknown as CreatureMovedMessage;
+		if (message.type === "MAP_CHANGED" && typeof message.mapId === "string" && message.map && typeof message.map === "object" && isPlayerState(message.player) && Array.isArray(message.players) && message.players.every(isPlayerState) && Array.isArray(message.creatures) && message.creatures.every((creature) => {
+			if (!creature || typeof creature !== "object") return false;
+			const value = creature as Record<string, unknown>;
+
+			return typeof value.id === "string" && value.species === "stag" && isGridRow(value.row) && isGridColumn(value.column) && isNonNegativeInteger(value.sequence);
+		})) return message as unknown as MapChangedMessage;
 
 		if (message.type === "PLAYER_LEFT" && Number.isSafeInteger(message.playerId) && Number(message.playerId) > 0) {
 			return { type: "PLAYER_LEFT", playerId: Number(message.playerId) };

@@ -6,11 +6,14 @@ export interface GameRuntimeConfig {
 	inventoryPosition: { x: number; y: number } | null;
 	map: RuntimeMap;
 	mapId: string;
+	portals?: PortalRuntimeDefinition[];
 	movement: { maxSteps: number };
 	tileDefinitions: RuntimeTileDefinitions;
 	zoom: { max: number; min: number };
 	zoomPreference: number;
 }
+
+export interface PortalRuntimeDefinition { id: string; mapId: string; row: number; column: number; destinationMapId: string; mode: "private" | "shared"; }
 
 /** Lang: pt-BR - Restringe campos numéricos do payload a inteiros seguros. Lang: en-US - Narrows numeric payload fields to safe integers. */
 const isInteger = (value: unknown): value is number => Number.isSafeInteger(value);
@@ -79,10 +82,18 @@ export function parseGameBootstrapConfig(value: unknown): GameRuntimeConfig {
 	const zoom = response.zoom as Record<string, unknown> | undefined;
 	const inventoryPosition = response.inventoryPosition as Record<string, unknown> | null | undefined;
 	const characterPosition = response.characterPosition as Record<string, unknown> | null | undefined;
+	const portals = response.portals ?? [];
 	if (!isInteger(response.inventoryColumns) || response.inventoryColumns < 4 || response.inventoryColumns > 6) {
 		throw new Error("Invalid game configuration: inventoryColumns must be an integer between 4 and 6.");
 	}
 	if (typeof response.mapId !== "string" || response.mapId.length === 0) throw new Error("Invalid game configuration: mapId must be a non-empty string.");
+	if (!Array.isArray(portals) || !portals.every((portal) => {
+		if (!portal || typeof portal !== "object") return false;
+		const value = portal as Record<string, unknown>;
+
+		return typeof value.id === "string" && typeof value.mapId === "string" && typeof value.destinationMapId === "string"
+			&& (value.mode === "private" || value.mode === "shared") && isInteger(value.row) && value.row >= 0 && isInteger(value.column) && value.column >= 0;
+	})) throw new Error("Invalid game configuration: portals must contain valid definitions.");
 	if (!("map" in response)) throw new Error("Invalid game configuration: map is missing.");
 	if (!movement || typeof movement !== "object") throw new Error("Invalid game configuration: movement is missing or invalid.");
 	if (!isInteger(movement.maxSteps) || movement.maxSteps <= 0) throw new Error("Invalid game configuration: movement.maxSteps must be a positive safe integer.");
@@ -126,6 +137,7 @@ export function parseGameBootstrapConfig(value: unknown): GameRuntimeConfig {
 		map,
 		mapId: response.mapId,
 		movement: { maxSteps: movement.maxSteps },
+		portals: portals.map((portal) => ({ ...(portal as PortalRuntimeDefinition) })),
 		tileDefinitions,
 		zoom: { max: zoom.max, min: zoom.min },
 		zoomPreference: Math.max(zoom.min, Math.min(zoom.max, response.zoomPreference)),

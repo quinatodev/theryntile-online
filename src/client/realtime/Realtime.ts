@@ -15,6 +15,7 @@ import {
 	type EnterChannelRejectionReason,
 	type EnterChannelSuccessMessage,
 	type MoveMessage,
+	type MapChangedMessage, type CreatureMovedMessage,
 	type PlayerMovedMessage,
 	type PlayersResyncMessage,
 	type PlayerState,
@@ -32,6 +33,9 @@ interface RealtimeCallbacks {
 	onPlayerLeft(playerId: number): void;
 	onPlayerMoved(message: PlayerMovedMessage): void;
 	onPlayersResync?(message: PlayersResyncMessage): void;
+	onPortalAvailable?(portalId: string): void;
+	onMapChanged?(message: MapChangedMessage): void;
+	onCreatureMoved?(message: CreatureMovedMessage): void;
 	onSessionReplaced(): void;
 	onSessionRevoked(): void;
 	onUnauthenticated(): void;
@@ -43,6 +47,7 @@ export interface Realtime {
 	enterChannel(channelId: number): boolean;
 	move(row: number, column: number): boolean;
 	requestPlayersResync(): boolean;
+	usePortal(portalId: string): boolean;
 }
 
 /**
@@ -115,6 +120,12 @@ export function createRealtime(callbacks: RealtimeCallbacks): Realtime {
 				callbacks.onPlayerMoved(message);
 			} else if (message?.type === "PLAYERS_RESYNC") {
 				callbacks.onPlayersResync?.(message);
+			} else if (message?.type === "PORTAL_AVAILABLE") {
+				callbacks.onPortalAvailable?.(message.portalId);
+			} else if (message?.type === "MAP_CHANGED") {
+				callbacks.onMapChanged?.(message);
+			} else if (message?.type === "CREATURE_MOVED") {
+				callbacks.onCreatureMoved?.(message);
 			} else if (message?.type === "SESSION_REPLACED") {
 				callbacks.onSessionReplaced();
 			} else if (message?.type === "SESSION_REVOKED") {
@@ -293,6 +304,12 @@ export function createRealtime(callbacks: RealtimeCallbacks): Realtime {
 
 		return true;
 	};
+	const usePortal = (portalId: string) => {
+		if (!enteredChannel || socket?.readyState !== WebSocket.OPEN || portalId.length === 0) return false;
+		socket.send(JSON.stringify({ type: "USE_PORTAL", portalId }));
 
-	return { connect, close, enterChannel, move, requestPlayersResync };
+		return true;
+	};
+
+	return { connect, close, enterChannel, move, requestPlayersResync, usePortal };
 }

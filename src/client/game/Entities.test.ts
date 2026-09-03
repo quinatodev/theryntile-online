@@ -3,7 +3,16 @@ import test from "node:test";
 
 import { World } from "../ecs/World.js";
 import { PLAYER_LAYER, PLAYER_ORDER, getRenderableRenderOrder } from "../ecs/systems/RenderSystem.js";
-import { createPlayerEntity, createTileEntity } from "./Entities.js";
+import { createCreatureEntity, createPlayerEntity, createPortalEntity, createTileEntity } from "./Entities.js";
+
+test("Portal and Stag factories preserve physical frame geometry independently from frame count", () => {
+	const world = new World();
+	const portal = createPortalEntity(world, { id: "private-test", row: 2, column: 3 });
+	const stag = createCreatureEntity(world, { id: "stag:1", species: "stag", row: 4, column: 5 });
+	assert.deepEqual(world.portals.get(portal), { id: "private-test", frameWidth: 32, frameHeight: 32, frameCount: 6 });
+	assert.deepEqual(world.sprites.get(stag), { feetOffsetY: 16, frameHeight: 48, frameWidth: 32, offsetX: 0, offsetY: 0 });
+	assert.deepEqual(world.animations.get(stag), { direction: "left_down", frame: 0, frameCounts: { idle: 24, walk: 11 }, state: "idle" });
+});
 
 test("createPlayerEntity installs independent complete Local and remote Player Components", () => {
 	const world = new World();

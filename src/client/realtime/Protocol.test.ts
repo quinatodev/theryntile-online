@@ -27,6 +27,17 @@ test("session revoked is accepted as a server message", () => {
 	assert.deepEqual(parseRealtimeMessage("{\"type\":\"SESSION_REVOKED\"}"), { type: "SESSION_REVOKED" });
 });
 
+test("portal, map transition, and authoritative Creature messages validate their required state", () => {
+	assert.deepEqual(parseRealtimeMessage(JSON.stringify({ type: "PORTAL_AVAILABLE", portalId: "private-test" })), { type: "PORTAL_AVAILABLE", portalId: "private-test" });
+	assert.equal(parseRealtimeMessage(JSON.stringify({ type: "PORTAL_AVAILABLE", portalId: "" })), null);
+	const creature = { type: "CREATURE_MOVED", creatureId: "stag:shared", fromRow: 5, fromColumn: 5, row: 5, column: 6, sequence: 1, startedAt: 100, endsAt: 600, serverTime: 100 };
+	assert.deepEqual(parseRealtimeMessage(JSON.stringify(creature)), creature);
+	assert.equal(parseRealtimeMessage(JSON.stringify({ ...creature, row: 6 })), null);
+	const changed = { type: "MAP_CHANGED", mapId: "multiplayer-test", map: { 0: [[1]] }, player: { id: 1, name: "A", row: 0, column: 0, sequence: 0 }, players: [], creatures: [{ id: "stag:shared", species: "stag", row: 0, column: 0, sequence: 0 }] };
+	assert.deepEqual(parseRealtimeMessage(JSON.stringify(changed)), changed);
+	assert.equal(parseRealtimeMessage(JSON.stringify({ ...changed, creatures: [{ ...changed.creatures[0], species: "dragon" }] })), null);
+});
+
 test("player moved accepts an authoritative adjacent transition", () => {
 	assert.deepEqual(parseRealtimeMessage(JSON.stringify({
 		type: "PLAYER_MOVED",
